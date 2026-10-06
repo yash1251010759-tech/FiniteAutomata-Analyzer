@@ -197,3 +197,45 @@ export const sampleGrammars: CFGDefinition[] = [
     ],
   },
 ];
+
+// Generate valid sample strings from CFG up to maxCount
+export function generateSampleStringsFromCfg(
+  cfg: CFGDefinition,
+  maxCount = 12,
+  maxDepth = 8
+): string[] {
+  const results = new Set<string>();
+  const queue: { form: string; depth: number }[] = [{ form: cfg.startVariable, depth: 0 }];
+  const visited = new Set<string>([cfg.startVariable]);
+
+  while (queue.length > 0 && results.size < maxCount) {
+    const { form, depth } = queue.shift()!;
+
+    const isTerminalString = form.split('').every(ch => !cfg.variables.includes(ch));
+    if (isTerminalString) {
+      results.add(form === '' ? 'ε' : form);
+      continue;
+    }
+
+    if (depth >= maxDepth) continue;
+
+    const leftmostIdx = form.split('').findIndex(ch => cfg.variables.includes(ch));
+    if (leftmostIdx === -1) continue;
+
+    const varToReplace = form[leftmostIdx];
+    const prods = cfg.productions.filter(p => p.variable === varToReplace);
+
+    for (const prod of prods) {
+      const rep = prod.replacement === 'ε' || prod.replacement === 'λ' ? '' : prod.replacement;
+      const nextForm = form.slice(0, leftmostIdx) + rep + form.slice(leftmostIdx + 1);
+
+      if (nextForm.length <= 15 && !visited.has(nextForm)) {
+        visited.add(nextForm);
+        queue.push({ form: nextForm, depth: depth + 1 });
+      }
+    }
+  }
+
+  return Array.from(results);
+}
+

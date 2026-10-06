@@ -2,7 +2,26 @@ import { AutomatonDefinition, SimulationResult, SimulationStep } from '../types/
 
 // Check if a symbol represents epsilon
 export function isEpsilon(sym: string): boolean {
-  return sym === 'ε' || sym === 'eps' || sym === 'lambda' || sym === 'λ' || sym === '' || sym === 'epsilon';
+  if (!sym) return true;
+  const s = sym.trim();
+  return (
+    s === 'ε' ||
+    s === 'eps' ||
+    s === 'lambda' ||
+    s === 'λ' ||
+    s === '' ||
+    s.toLowerCase() === 'epsilon'
+  );
+}
+
+// Check if a transition edge matches a symbol
+export function transitionMatchesSymbol(edgeSymbols: string[], symbol: string): boolean {
+  const target = symbol.trim();
+  return edgeSymbols.some(s => {
+    if (s.trim() === target) return true;
+    const parts = s.split(/[, ]+/).map(x => x.trim()).filter(Boolean);
+    return parts.includes(target);
+  });
 }
 
 // Compute epsilon closure for a set of states
@@ -17,7 +36,12 @@ export function getEpsilonClosure(
     const curr = queue.shift()!;
     const outgoing = machine.transitions.filter(t => t.from === curr);
     for (const trans of outgoing) {
-      if (trans.symbols.some(isEpsilon)) {
+      const hasEpsilonEdge = trans.symbols.some(s => {
+        if (isEpsilon(s)) return true;
+        const parts = s.split(/[, ]+/).map(x => x.trim()).filter(Boolean);
+        return parts.some(isEpsilon);
+      });
+      if (hasEpsilonEdge) {
         if (!closure.has(trans.to)) {
           closure.add(trans.to);
           queue.push(trans.to);
@@ -34,24 +58,37 @@ export function simulateAutomaton(
   machine: AutomatonDefinition,
   input: string
 ): SimulationResult {
-  if (!machine.startStateId) {
+  const effectiveStartId =
+    (machine.startStateId && machine.states.some(s => s.id === machine.startStateId))
+      ? machine.startStateId
+      : (machine.states.find(s => s.isStart)?.id || machine.states[0]?.id || '');
+
+  if (!effectiveStartId) {
     return {
       accepted: false,
       status: 'REJECTED',
       finalStateIds: [],
       path: [],
-      detailedReason: 'Error: No start state defined for this machine.',
+      detailedReason: 'Error: No start state defined for this machine. Add a state and designate it as the Start state.',
       totalSteps: 0,
     };
   }
 
   const steps: SimulationStep[] = [];
-  const isEpsilonNfa = machine.type === 'ENFA' || machine.transitions.some(t => t.symbols.some(isEpsilon));
+  const isEpsilonNfa =
+    machine.type === 'ENFA' ||
+    machine.transitions.some(t =>
+      t.symbols.some(s => {
+        if (isEpsilon(s)) return true;
+        const parts = s.split(/[, ]+/).map(x => x.trim()).filter(Boolean);
+        return parts.some(isEpsilon);
+      })
+    );
 
   // Initial state(s)
   let currentStates = isEpsilonNfa
-    ? getEpsilonClosure([machine.startStateId], machine)
-    : [machine.startStateId];
+    ? getEpsilonClosure([effectiveStartId], machine)
+    : [effectiveStartId];
 
   // Step 0
   const startLabels = currentStates
@@ -100,7 +137,7 @@ export function simulateAutomaton(
     // Advance transitions for each active state
     for (const stateId of currentStates) {
       const transitions = machine.transitions.filter(
-        t => t.from === stateId && t.symbols.includes(symbol)
+        t => t.from === stateId && transitionMatchesSymbol(t.symbols, symbol)
       );
       for (const t of transitions) {
         nextStatesSet.add(t.to);
@@ -159,7 +196,11 @@ export function simulateAutomaton(
   }
 
   // Check acceptance: does current active set intersect with final states?
-  const acceptingReached = currentStates.filter(id => machine.finalStateIds.includes(id));
+  const allFinalStateIds = new Set<string>([
+    ...(machine.finalStateIds || []),
+    ...machine.states.filter(s => s.isFinal).map(s => s.id),
+  ]);
+  const acceptingReached = currentStates.filter(id => allFinalStateIds.has(id));
   const accepted = acceptingReached.length > 0;
 
   const finalStateLabels = currentStates
@@ -173,7 +214,7 @@ export function simulateAutomaton(
   if (accepted) {
     detailedReason = `The machine successfully consumed the entire input "${input || 'ε'}" and halted in accepting state(s) {${acceptingLabels}}. Therefore, the string is ACCEPTED ✓.`;
   } else {
-    detailedReason = `The machine consumed the entire input "${input || 'ε'}" but ended in non-accepting state(s) {${finalStateLabels}}. Therefore, the string is REJECTED ✗.`;
+    detailedReason = `The machine consumed the entire input "${input || 'ε'}" but ended in non-accepting state(s) {${finalStateLabels || 'none'}}. Therefore, the string is REJECTED ✗.`;
   }
 
   return {

@@ -11,7 +11,7 @@ export interface SubsetRow {
 }
 
 export interface ConversionStepReport {
-  originalType: 'ENFA' | 'NFA';
+  originalType: 'DFA' | 'ENFA' | 'NFA';
   targetType: 'NFA' | 'DFA';
   subsetRows: SubsetRow[];
   resultMachine: AutomatonDefinition;
@@ -288,5 +288,29 @@ export function convertNfaToDfa(machine: AutomatonDefinition): ConversionStepRep
     subsetRows,
     resultMachine,
     explanation,
+  };
+}
+
+// Convert DFA to NFA (trivial formal embedding)
+export function convertDfaToNfa(dfa: AutomatonDefinition): ConversionStepReport {
+  const resultMachine: AutomatonDefinition = {
+    ...dfa,
+    id: `nfa-${Date.now()}`,
+    name: `${dfa.name} (as NFA)`,
+    type: 'NFA',
+    states: dfa.states.map(s => ({ ...s })),
+    transitions: dfa.transitions.map(t => ({ ...t })),
+  };
+
+  return {
+    originalType: 'DFA',
+    targetType: 'NFA',
+    subsetRows: [],
+    resultMachine,
+    explanation: [
+      '1. Every DFA is mathematically already a valid NFA with a deterministic branching factor of exactly 1.',
+      '2. The transition function δ: Q × Σ → Q is formally re-mapped to singleton sets: δ: Q × Σ → 2^Q where δ(q, a) = {q\u0027}.',
+      '3. No state modification or powerset expansion is required; the recognized language is identical.',
+    ],
   };
 }

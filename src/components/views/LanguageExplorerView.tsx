@@ -1,7 +1,21 @@
 import React, { useState } from 'react';
 import { AutomatonDefinition } from '../../types/automata';
 import { exploreLanguage, generateRandomTests, StringTestResult } from '../../algorithms/languageExplorer';
-import { Compass, Sparkles, CheckCircle2, XCircle, Play, Sliders, ArrowRight } from 'lucide-react';
+import { simulateAutomaton } from '../../algorithms/dfaSimulation';
+import {
+  Compass,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+  Play,
+  Sliders,
+  ArrowRight,
+  Search,
+  BookOpen,
+  Layers,
+  ShieldCheck,
+  Cpu,
+} from 'lucide-react';
 
 interface LanguageExplorerViewProps {
   machine: AutomatonDefinition;
@@ -9,11 +23,15 @@ interface LanguageExplorerViewProps {
 
 export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ machine }) => {
   const [maxLength, setMaxLength] = useState<number>(4);
-  const [activeTab, setActiveTab] = useState<'SYSTEMATIC' | 'RANDOM'>('SYSTEMATIC');
+  const [activeTab, setActiveTab] = useState<'SYSTEMATIC' | 'RANDOM' | 'CHOMSKY'>('SYSTEMATIC');
   const [selectedResult, setSelectedResult] = useState<StringTestResult | null>(null);
 
+  // Custom User String Tester
+  const [customInput, setCustomInput] = useState<string>('');
+  const [customResult, setCustomResult] = useState<StringTestResult | null>(null);
+
   // Systematic exploration
-  const exploration = exploreLanguage(machine, maxLength, 100);
+  const exploration = exploreLanguage(machine, maxLength, 120);
 
   // Random tests
   const [randomCount, setRandomCount] = useState<number>(12);
@@ -27,6 +45,20 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
     setRandomTests(tests);
   };
 
+  const handleTestCustomString = () => {
+    const clean = customInput.trim();
+    const sim = simulateAutomaton(machine, clean);
+    const res: StringTestResult = {
+      input: clean,
+      displayInput: clean === '' ? 'ε (empty string)' : clean,
+      length: clean.length,
+      accepted: sim.accepted,
+      simulation: sim,
+    };
+    setCustomResult(res);
+    setSelectedResult(res);
+  };
+
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
       {/* Header */}
@@ -34,10 +66,10 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-white font-['Outfit'] flex items-center gap-2">
             <Compass className="w-6 h-6 text-cyan-400" />
-            <span>Language Explorer & Test Suite Generator</span>
+            <span>Language Explorer & Formal Analysis</span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Systematically enumerate the language of "{machine.name}" or generate randomized test suites
+            Systematic word enumeration, custom membership testing ($w \in L$), and Chomsky Hierarchy classification for "{machine.name}".
           </p>
         </div>
 
@@ -51,7 +83,7 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Systematic Exploration
+            Systematic (Σ*)
           </button>
           <button
             onClick={() => setActiveTab('RANDOM')}
@@ -61,12 +93,76 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Random Test Suite
+            Random Suite
+          </button>
+          <button
+            onClick={() => setActiveTab('CHOMSKY')}
+            className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
+              activeTab === 'CHOMSKY'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Chomsky Classification
           </button>
         </div>
       </div>
 
-      {activeTab === 'SYSTEMATIC' ? (
+      {/* Interactive Custom String Tester Bar */}
+      <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3 backdrop-blur-md">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-white flex items-center gap-2">
+            <Search className="w-4 h-4 text-cyan-400" />
+            <span>Test Arbitrary String Membership: w ∈ L({machine.name})?</span>
+          </span>
+          <span className="text-[11px] font-mono text-slate-400">
+            Alphabet Σ: {'{' + machine.alphabet.join(', ') + '}'}
+          </span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <input
+            type="text"
+            value={customInput}
+            onChange={e => setCustomInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleTestCustomString()}
+            placeholder="Type any candidate string (e.g. 01, 10101, or leave empty for ε)..."
+            className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-100 focus:outline-none focus:border-cyan-500 shadow-inner"
+          />
+
+          <button
+            onClick={handleTestCustomString}
+            className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Check Membership</span>
+          </button>
+        </div>
+
+        {customResult && (
+          <div
+            className={`p-3 rounded-2xl border text-xs flex items-center justify-between ${
+              customResult.accepted
+                ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-200'
+                : 'bg-rose-950/40 border-rose-500/60 text-rose-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {customResult.accepted ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <XCircle className="w-4 h-4 text-rose-400" />
+              )}
+              <span className="font-mono font-bold">
+                "{customResult.displayInput}" is {customResult.accepted ? 'ACCEPTED (∈ L)' : 'REJECTED (∉ L)'}
+              </span>
+            </div>
+            <span className="text-[11px] opacity-80">{customResult.simulation.detailedReason}</span>
+          </div>
+        )}
+      </div>
+
+      {activeTab === 'SYSTEMATIC' && (
         /* SYSTEMATIC EXPLORATION */
         <div className="space-y-6">
           {/* Controls Bar */}
@@ -168,7 +264,9 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
             </div>
           </div>
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'RANDOM' && (
         /* RANDOM TEST SUITE */
         <div className="space-y-6">
           <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-4">
@@ -191,7 +289,7 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition-colors flex items-center gap-1.5"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Regenerate Test Cases</span>
+                <span>Regenerate Random Suite</span>
               </button>
             </div>
           </div>
@@ -220,6 +318,79 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
         </div>
       )}
 
+      {activeTab === 'CHOMSKY' && (
+        /* CHOMSKY HIERARCHY CLASSIFICATION */
+        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-6">
+          <div className="border-b border-slate-800 pb-3">
+            <h3 className="text-base font-bold text-white font-['Outfit'] flex items-center gap-2">
+              <Layers className="w-5 h-5 text-indigo-400" />
+              <span>Chomsky Hierarchy Classification: {machine.type} Model</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Theoretical classification of the language recognized by this automaton in formal language theory.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
+            {/* Classification Card */}
+            <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-3">
+              <div className="text-xs font-bold text-indigo-300 uppercase tracking-wide">
+                Chomsky Level
+              </div>
+              <div className="text-lg font-bold text-white">
+                {machine.type === 'DFA' || machine.type === 'NFA' || machine.type === 'ENFA' || machine.type === 'MOORE' || machine.type === 'MEALY'
+                  ? 'Type 3: Regular Language (RL)'
+                  : 'Context-Free / Universal Computation'}
+              </div>
+              <p className="text-slate-300 leading-relaxed text-xs">
+                Recognized by Finite State Automata without auxiliary memory. Expressible by Regular Expressions and generated by Regular Grammars (A → aB | a).
+              </p>
+            </div>
+
+            {/* Closure Properties Card */}
+            <div className="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-3">
+              <div className="text-xs font-bold text-emerald-300 uppercase tracking-wide">
+                Closure Properties
+              </div>
+              <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Union (L1 ∪ L2)
+                </div>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Intersection (L1 ∩ L2)
+                </div>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Complement (Σ* \ L)
+                </div>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Concatenation (L1 · L2)
+                </div>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Kleene Star (L*)
+                </div>
+                <div className="p-2 bg-slate-900 rounded-lg border border-slate-800 text-slate-200">
+                  ✓ Reversal (L^R)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Decidability Questions */}
+          <div className="p-4 bg-indigo-950/30 rounded-2xl border border-indigo-800/40 space-y-2 text-xs">
+            <h4 className="font-bold text-indigo-300 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+              <span>Decidability Guarantees for Regular Languages</span>
+            </h4>
+            <div className="space-y-1.5 text-slate-300">
+              <div>• <strong>Membership Problem:</strong> Given string w, is w ∈ L(M)? &rarr; <strong>DECIDABLE in O(|w|) time.</strong></div>
+              <div>• <strong>Emptiness Problem:</strong> Is L(M) = ∅? &rarr; <strong>DECIDABLE via BFS/DFS reachability to accepting states.</strong></div>
+              <div>• <strong>Finiteness Problem:</strong> Is L(M) finite or infinite? &rarr; <strong>DECIDABLE by checking for reachable cycles.</strong></div>
+              <div>• <strong>Equivalence Problem:</strong> Is L(M1) = L(M2)? &rarr; <strong>DECIDABLE by minimizing both DFAs or checking symmetric difference.</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Selected String Execution Trace Modal / Detail */}
       {selectedResult && (
         <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3 animate-in fade-in">
@@ -239,7 +410,7 @@ export const LanguageExplorerView: React.FC<LanguageExplorerViewProps> = ({ mach
 
             <button
               onClick={() => setSelectedResult(null)}
-              className="text-xs text-slate-400 hover:text-white"
+              className="text-xs text-slate-400 hover:text-white px-2 py-1 bg-slate-800 rounded-lg"
             >
               Close
             </button>

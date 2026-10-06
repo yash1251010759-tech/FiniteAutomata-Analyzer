@@ -448,6 +448,10 @@ export function App() {
           setCurrentMachine(predefinedAutomata[1]);
           setCurrentTab('builder');
         }}
+        onNavigateTab={(tab) => {
+          setCurrentTab(tab);
+          setIsTutorialOpen(false);
+        }}
       />
 
       <ShortcutsModal

@@ -1,4 +1,5 @@
-import { AutomatonDefinition, SimulationStep } from '../types/automata';
+import { AutomatonDefinition, SimulationStep, StateNode, TransitionEdge } from '../types/automata';
+import { layoutNodes } from './subsetConstruction';
 
 export interface MooreMealyStep {
   stepIndex: number;
@@ -257,5 +258,188 @@ export function compareMooreVsMealy(
       moore: mooreMachine.states.length,
       mealy: mealyMachine.states.length,
     },
+  };
+}
+
+export interface MooreMealyConversionReport {
+  originalMachine: AutomatonDefinition;
+  resultMachine: AutomatonDefinition;
+  conversionType: 'MOORE_TO_MEALY' | 'MEALY_TO_MOORE';
+  explanation: string[];
+  mappingRows: {
+    source: string;
+    target: string;
+    output: string;
+    rule: string;
+  }[];
+}
+
+// Convert Moore Machine to Mealy Machine
+export function convertMooreToMealy(moore: AutomatonDefinition): MooreMealyConversionReport {
+  const mealyStates: StateNode[] = moore.states.map(s => ({
+    ...s,
+    output: undefined,
+  }));
+
+  const stateOutputMap = new Map<string, string>();
+  for (const s of moore.states) {
+    stateOutputMap.set(s.id, s.output || '0');
+  }
+
+  const mappingRows: { source: string; target: string; output: string; rule: string }[] = [];
+  const mealyTransitions: TransitionEdge[] = moore.transitions.map((t, idx) => {
+    const targetState = moore.states.find(s => s.id === t.to);
+    const targetLabel = targetState?.label || t.to;
+    const fromState = moore.states.find(s => s.id === t.from);
+    const fromLabel = fromState?.label || t.from;
+    const output = stateOutputMap.get(t.to) || '0';
+
+    mappingRows.push({
+      source: `${fromLabel} --(${t.symbols.join(',')})--> ${targetLabel}`,
+      target: `${fromLabel} --(${t.symbols.join(',')}/${output})--> ${targetLabel}`,
+      output,
+      rule: `Transition entering state ${targetLabel} inherits Moore output '${output}'`,
+    });
+
+    return {
+      ...t,
+      id: `mealy-edge-${idx}`,
+      output,
+    };
+  });
+
+  const resultMachine: AutomatonDefinition = {
+    ...moore,
+    id: `mealy-${Date.now()}`,
+    name: `${moore.name} (Converted Mealy)`,
+    type: 'MEALY',
+    states: mealyStates,
+    transitions: mealyTransitions,
+  };
+
+  const explanation = [
+    `1. Preserved all ${moore.states.length} state nodes: Q_Mealy = Q_Moore.`,
+    `2. Transferred state outputs to incoming transitions: for every transition δ(p, a) = q, the Mealy transition output becomes λ(p, a) = λ_Moore(q).`,
+    `3. Removed outputs from states because Mealy machines emit outputs strictly on transitions.`,
+  ];
+
+  return {
+    originalMachine: moore,
+    resultMachine,
+    conversionType: 'MOORE_TO_MEALY',
+    explanation,
+    mappingRows,
+  };
+}
+
+// Convert Mealy Machine to Moore Machine
+export function convertMealyToMoore(mealy: AutomatonDefinition): MooreMealyConversionReport {
+  const incomingOutputs = new Map<string, Set<string>>();
+  for (const s of mealy.states) {
+    incomingOutputs.set(s.id, new Set());
+  }
+
+  if (mealy.startStateId && incomingOutputs.has(mealy.startStateId)) {
+    incomingOutputs.get(mealy.startStateId)!.add('0');
+  }
+
+  for (const t of mealy.transitions) {
+    const out = t.output !== undefined && t.output !== '' ? t.output : '0';
+    if (incomingOutputs.has(t.to)) {
+      incomingOutputs.get(t.to)!.add(out);
+    }
+  }
+
+  for (const s of mealy.states) {
+    const outs = incomingOutputs.get(s.id)!;
+    if (outs.size === 0) {
+      outs.add('0');
+    }
+  }
+
+  const mooreStates: StateNode[] = [];
+  const stateSplitMap = new Map<string, Map<string, string>>();
+  const mappingRows: { source: string; target: string; output: string; rule: string }[] = [];
+
+  for (const s of mealy.states) {
+    const outs = Array.from(incomingOutputs.get(s.id)!);
+    const subMap = new Map<string, string>();
+
+    for (const out of outs) {
+      const newId = `${s.id}_${out}`;
+      const newLabel = outs.length === 1 ? s.label : `${s.label}/${out}`;
+      subMap.set(out, newId);
+
+      mooreStates.push({
+        id: newId,
+        label: newLabel,
+        x: s.x,
+        y: s.y,
+        output: out,
+        isStart: s.id === mealy.startStateId && out === '0',
+        isFinal: mealy.finalStateIds.includes(s.id),
+        description: `State ${s.label} with entry output '${out}'`,
+      });
+
+      mappingRows.push({
+        source: `Mealy State ${s.label}`,
+        target: `Moore State ${newLabel}`,
+        output: out,
+        rule: `Split state ${s.label} for transition output '${out}'`,
+      });
+    }
+    stateSplitMap.set(s.id, subMap);
+  }
+
+  const mooreTransitions: TransitionEdge[] = [];
+  let edgeCounter = 0;
+
+  for (const t of mealy.transitions) {
+    const out = t.output !== undefined && t.output !== '' ? t.output : '0';
+    const targetMap = stateSplitMap.get(t.to);
+    const targetMooreId = targetMap ? (targetMap.get(out) || Array.from(targetMap.values())[0]) : t.to;
+
+    const fromMap = stateSplitMap.get(t.from);
+    if (fromMap) {
+      for (const fromMooreId of fromMap.values()) {
+        mooreTransitions.push({
+          id: `moore-conv-edge-${edgeCounter++}`,
+          from: fromMooreId,
+          to: targetMooreId,
+          symbols: [...t.symbols],
+        });
+      }
+    }
+  }
+
+  const startMap = stateSplitMap.get(mealy.startStateId);
+  const startStateId = startMap ? (startMap.get('0') || Array.from(startMap.values())[0]) : mealy.startStateId;
+  const finalStateIds = mooreStates.filter(s => s.isFinal).map(s => s.id);
+  const positionedStates = layoutNodes(mooreStates);
+
+  const resultMachine: AutomatonDefinition = {
+    ...mealy,
+    id: `moore-${Date.now()}`,
+    name: `${mealy.name} (Converted Moore)`,
+    type: 'MOORE',
+    states: positionedStates,
+    transitions: mooreTransitions,
+    startStateId,
+    finalStateIds,
+  };
+
+  const explanation = [
+    `1. Analyzed all outputs on transitions entering each Mealy state.`,
+    `2. Split states that receive multiple distinct outputs: generated ${mooreStates.length} Moore states from ${mealy.states.length} Mealy states.`,
+    `3. Assigned each transition output as the static output of the newly partitioned Moore state.`,
+    `4. Rewired all transitions to land on the specific state variant corresponding to their emitted output.`,
+  ];
+
+  return {
+    originalMachine: mealy,
+    resultMachine,
+    conversionType: 'MEALY_TO_MOORE',
+    explanation,
+    mappingRows,
   };
 }

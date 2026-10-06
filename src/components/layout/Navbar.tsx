@@ -100,16 +100,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden md:inline">{isAdvancedMode ? 'Advanced' : 'Beginner'}</span>
         </button>
 
-        {/* Guided Tutorial Button */}
-        <button
-          onClick={onOpenTutorial}
-          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl transition-colors"
-          title="Interactive Tutorial"
-        >
-          <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="hidden sm:inline">Tutorial</span>
-        </button>
-
         {/* Keyboard Shortcuts Button */}
         <button
           onClick={onOpenShortcuts}
@@ -119,11 +109,24 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Keyboard className="w-4 h-4" />
         </button>
 
+        {/* Guided Tutorial Academy Button (Adjacent to Ask AI) */}
+        <button
+          onClick={onOpenTutorial}
+          className="relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-200 bg-gradient-to-r from-indigo-950/80 to-purple-950/80 hover:from-indigo-900 hover:to-purple-900 border border-indigo-700/60 hover:border-indigo-500 rounded-xl transition-all shadow-md group"
+          title="Interactive Automata Academy: Step-by-Step Curriculum, Examples & Deep Concept Guides"
+        >
+          <BookOpen className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform" />
+          <span>Tutorial</span>
+          <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide bg-indigo-500/30 text-indigo-300 rounded border border-indigo-400/40">
+            Academy
+          </span>
+        </button>
+
         {/* AI Tutor Button */}
         <button
           onClick={onOpenAiTutor}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-cyan-300 bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-800/50 rounded-xl transition-colors shadow-sm"
-          title="Open Automata AI Tutor"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-700/60 hover:border-cyan-500 rounded-xl transition-all shadow-md"
+          title="Open Automata AI Tutor (Gemini Powered)"
         >
           <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
           <span className="hidden md:inline">Ask AI</span>

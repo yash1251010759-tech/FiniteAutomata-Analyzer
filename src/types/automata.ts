@@ -117,7 +117,7 @@ export interface CFGDerivationStep {
 
 // Pushdown Automaton Definitions
 export interface PDATransition {
-  id: string;
+  id?: string;
   from: string;
   to: string;
   inputSymbol: string; // '0', '1', or 'ε'

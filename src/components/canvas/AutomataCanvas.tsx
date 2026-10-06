@@ -24,6 +24,10 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // Fallback internal selection when parent does not manage selectedStateId
+  const [internalSelectedStateId, setInternalSelectedStateId] = useState<string | null>(null);
+  const activeSelectedStateId = selectedStateId !== undefined ? selectedStateId : internalSelectedStateId;
+
   // Pan and Zoom
   const [zoom, setZoom] = useState<number>(1);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -52,6 +56,7 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
     if (e.target === svgRef.current || (e.target as HTMLElement).tagName === 'svg') {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      setInternalSelectedStateId(null);
       if (onSelectState) onSelectState(null);
       setConnectSourceId(null);
     }
@@ -98,6 +103,7 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
       return;
     }
 
+    setInternalSelectedStateId(state.id);
     if (onSelectState) onSelectState(state);
 
     if (isEditable) {
@@ -184,7 +190,9 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
 
   // Toggle final state
   const handleToggleFinal = (stateId: string) => {
-    const isCurrentlyFinal = machine.finalStateIds.includes(stateId);
+    const isCurrentlyFinal =
+      machine.finalStateIds.includes(stateId) ||
+      Boolean(machine.states.find(s => s.id === stateId)?.isFinal);
     const newFinals = isCurrentlyFinal
       ? machine.finalStateIds.filter(id => id !== stateId)
       : [...machine.finalStateIds, stateId];
@@ -217,8 +225,9 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
       finalStateIds: remainingFinals,
       startStateId: newStart,
     });
-    if (selectedStateId === stateId && onSelectState) {
-      onSelectState(null);
+    if (activeSelectedStateId === stateId) {
+      setInternalSelectedStateId(null);
+      if (onSelectState) onSelectState(null);
     }
   };
 
@@ -502,7 +511,7 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
           {/* States Layer */}
           {machine.states.map(state => {
             const isActive = activeStateIds.includes(state.id);
-            const isSelected = selectedStateId === state.id;
+            const isSelected = activeSelectedStateId === state.id;
             const isConnectingSource = connectSourceId === state.id;
             const isStart = state.id === machine.startStateId || Boolean(state.isStart);
             const isFinal = machine.finalStateIds.includes(state.id) || Boolean(state.isFinal);
@@ -650,9 +659,11 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
 
             <button
               onClick={() => {
-                if (selectedStateId) {
-                  setConnectSourceId(selectedStateId);
+                if (activeSelectedStateId) {
+                  setConnectSourceId(activeSelectedStateId);
                 } else if (machine.states.length >= 2) {
+                  setConnectSourceId(machine.states[0].id);
+                } else if (machine.states.length === 1) {
                   setConnectSourceId(machine.states[0].id);
                 }
               }}
@@ -707,11 +718,27 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
         </button>
       </div>
 
+      {/* Connection in Progress Floating Notice Banner */}
+      {connectSourceId && (
+        <div className="absolute top-4 right-4 flex items-center gap-2.5 px-3.5 py-2 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-2xl backdrop-blur-md z-20 animate-in fade-in">
+          <ArrowRightCircle className="w-4 h-4 animate-pulse shrink-0" />
+          <span>
+            Connect from <span className="font-mono underline">{machine.states.find(s => s.id === connectSourceId)?.label || connectSourceId}</span> → Click target state (or click same state for self-loop)
+          </span>
+          <button
+            onClick={() => setConnectSourceId(null)}
+            className="ml-2 px-2 py-0.5 bg-slate-950 text-amber-300 rounded-lg text-[11px] hover:bg-slate-800"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* Selected State Actions Bar (Bottom left) */}
-      {selectedStateId && isEditable && (
+      {activeSelectedStateId && isEditable && (
         <div className="absolute bottom-4 left-4 flex items-center gap-2 p-2 bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-xl backdrop-blur-md z-10 animate-in fade-in">
           {(() => {
-            const st = machine.states.find(s => s.id === selectedStateId);
+            const st = machine.states.find(s => s.id === activeSelectedStateId);
             if (!st) return null;
             const isStart = st.id === machine.startStateId;
             const isFinal = machine.finalStateIds.includes(st.id);
@@ -721,6 +748,19 @@ export const AutomataCanvas: React.FC<AutomataCanvasProps> = ({
                 <div className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 font-mono text-xs rounded border border-indigo-500/30 font-semibold">
                   {st.label}
                 </div>
+
+                <button
+                  onClick={() => setConnectSourceId(st.id)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors flex items-center gap-1 ${
+                    connectSourceId === st.id
+                      ? 'bg-amber-500 text-slate-950 font-bold'
+                      : 'bg-slate-800 text-amber-300 hover:bg-slate-700'
+                  }`}
+                  title="Connect this state to another state"
+                >
+                  <ArrowRightCircle className="w-3 h-3" />
+                  <span>{connectSourceId === st.id ? 'Connecting...' : 'Connect →'}</span>
+                </button>
 
                 <button
                   onClick={() => handleToggleStart(st.id)}
