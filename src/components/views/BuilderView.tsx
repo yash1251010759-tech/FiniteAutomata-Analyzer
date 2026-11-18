@@ -15,6 +15,7 @@ import {
   BookOpen,
   RotateCcw,
   RotateCw,
+  Save,
   Plus,
   Trash2,
   Sparkles,
@@ -26,6 +27,7 @@ import {
 interface BuilderViewProps {
   machine: AutomatonDefinition;
   onChangeMachine: (updated: AutomatonDefinition) => void;
+  onSaveMachine: (machine: AutomatonDefinition) => Promise<'local' | 'cloud'>;
   isAdvancedMode?: boolean;
 }
 
@@ -34,6 +36,7 @@ type TabType = 'properties' | 'table' | 'statistics' | 'debugger' | 'formal' | '
 export const BuilderView: React.FC<BuilderViewProps> = ({
   machine,
   onChangeMachine,
+  onSaveMachine,
   isAdvancedMode = false,
 }) => {
   // History for Undo / Redo
@@ -42,6 +45,9 @@ export const BuilderView: React.FC<BuilderViewProps> = ({
 
   const [activeTab, setActiveTab] = useState<TabType>('properties');
   const [selectedState, setSelectedState] = useState<StateNode | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   // Inline simulation state
   const [inputString, setInputString] = useState<string>('01');
@@ -78,6 +84,24 @@ export const BuilderView: React.FC<BuilderViewProps> = ({
     const res = simulateAutomaton(machine, inputString);
     setSimResult(res);
     setStepIndex(0);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveMessage('');
+    setSaveError('');
+    try {
+      const destination = await onSaveMachine(machine);
+      setSaveMessage(
+        destination === 'cloud'
+          ? 'Saved to your Supabase account.'
+          : 'Saved in this browser. Sign in to sync across devices.'
+      );
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to save this automaton.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const activeStateIds = simResult?.path[stepIndex]?.currentStateIds || [];
@@ -121,6 +145,25 @@ export const BuilderView: React.FC<BuilderViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl transition-colors flex items-center gap-1.5"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>{isSaving ? 'Saving…' : 'Save'}</span>
+          </button>
+
+          {(saveMessage || saveError) && (
+            <span
+              className={`max-w-48 text-[11px] ${saveError ? 'text-rose-300' : 'text-emerald-300'}`}
+              role={saveError ? 'alert' : 'status'}
+            >
+              {saveError || saveMessage}
+            </span>
+          )}
+
           {/* Undo / Redo Buttons */}
           <button
             onClick={handleUndo}

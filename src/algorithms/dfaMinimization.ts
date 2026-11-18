@@ -1,5 +1,6 @@
 import { AutomatonDefinition, StateNode, TransitionEdge } from '../types/automata';
 import { layoutNodes } from './subsetConstruction';
+import { completeDFA } from './automatonValidation';
 
 export interface MinimizationIteration {
   iterationNumber: number;
@@ -15,6 +16,7 @@ export interface MinimizationReport {
   initialPartition: string[][];
   iterations: MinimizationIteration[];
   equivalentStateGroups: string[][];
+  distinguishingStrings: Array<{ stateIds: [string, string]; string: string }>;
   statesBefore: number;
   statesAfter: number;
   transitionsBefore: number;
@@ -44,20 +46,25 @@ export function getReachableStates(machine: AutomatonDefinition): string[] {
 
 // DFA Minimization Algorithm (Hopcroft / Partition Refinement)
 export function minimizeDFA(machine: AutomatonDefinition): MinimizationReport {
-  const alphabet = machine.alphabet.filter(s => s !== 'ε' && s !== 'λ');
+  const finalStateIds = [...new Set([
+    ...(machine.finalStateIds || []),
+    ...machine.states.filter(state => state.isFinal).map(state => state.id),
+  ])];
+  const completedMachine = completeDFA({ ...machine, finalStateIds });
+  const alphabet = completedMachine.alphabet.filter(s => s !== 'ε' && s !== 'λ');
 
   // Step 1: Remove unreachable states
-  const reachableIds = new Set(getReachableStates(machine));
-  const unreachableStatesRemoved = machine.states
+  const reachableIds = new Set(getReachableStates(completedMachine));
+  const unreachableStatesRemoved = completedMachine.states
     .filter(s => !reachableIds.has(s.id))
     .map(s => s.label || s.id);
 
   // Filter machine to only reachable states
-  const reachableStates = machine.states.filter(s => reachableIds.has(s.id));
-  const reachableTransitions = machine.transitions.filter(
+  const reachableStates = completedMachine.states.filter(s => reachableIds.has(s.id));
+  const reachableTransitions = completedMachine.transitions.filter(
     t => reachableIds.has(t.from) && reachableIds.has(t.to)
   );
-  const reachableFinals = machine.finalStateIds.filter(id => reachableIds.has(id));
+  const reachableFinals = completedMachine.finalStateIds.filter(id => reachableIds.has(id));
 
   // Step 2: Initial partition P0 = { Non-Final, Final }
   const groupNonFinal = reachableStates.filter(s => !reachableFinals.includes(s.id)).map(s => s.id);
@@ -138,6 +145,35 @@ export function minimizeDFA(machine: AutomatonDefinition): MinimizationReport {
 
   // Equivalent state groups (groups with >1 state)
   const equivalentStateGroups = currentPartition.filter(g => g.length > 1);
+  const distinguishingStrings: MinimizationReport['distinguishingStrings'] = [];
+  const isFinalState = (stateId: string) => reachableFinals.includes(stateId);
+  const findDistinguishingString = (first: string, second: string): string | undefined => {
+    const pairs = [{ left: first, right: second, word: '' }];
+    const seenPairs = new Set([JSON.stringify([first, second])]);
+    for (let index = 0; index < pairs.length; index++) {
+      const pair = pairs[index];
+      if (isFinalState(pair.left) !== isFinalState(pair.right)) return pair.word;
+      for (const symbol of alphabet) {
+        const left = getNextState(pair.left, symbol);
+        const right = getNextState(pair.right, symbol);
+        if (!left || !right) continue;
+        const key = JSON.stringify([left, right]);
+        if (seenPairs.has(key)) continue;
+        seenPairs.add(key);
+        pairs.push({ left, right, word: pair.word + symbol });
+      }
+    }
+    return undefined;
+  };
+  for (let first = 0; first < reachableStates.length; first++) {
+    for (let second = first + 1; second < reachableStates.length; second++) {
+      const firstId = reachableStates[first].id;
+      const secondId = reachableStates[second].id;
+      if (findGroupIndex(firstId, currentPartition) === findGroupIndex(secondId, currentPartition)) continue;
+      const witness = findDistinguishingString(firstId, secondId);
+      if (witness !== undefined) distinguishingStrings.push({ stateIds: [firstId, secondId], string: witness });
+    }
+  }
 
   // Step 4 & 5: Construct the Minimized DFA
   const newStates: StateNode[] = [];
@@ -147,10 +183,10 @@ export function minimizeDFA(machine: AutomatonDefinition): MinimizationReport {
 
   currentPartition.forEach((group, idx) => {
     const groupId = `q${idx}`;
-    const labels = group.map(id => machine.states.find(s => s.id === id)?.label || id).sort();
+    const labels = group.map(id => completedMachine.states.find(s => s.id === id)?.label || id).sort();
     const groupLabel = labels.length > 1 ? `[${labels.join(',')}]` : labels[0];
-    const isStart = group.includes(machine.startStateId);
-    const isFinal = group.some(id => machine.finalStateIds.includes(id));
+    const isStart = group.includes(completedMachine.startStateId);
+    const isFinal = group.some(id => completedMachine.finalStateIds.includes(id));
 
     if (isStart) startGroupStateId = groupId;
     if (isFinal) finalGroupStateIds.push(groupId);
@@ -215,7 +251,8 @@ export function minimizeDFA(machine: AutomatonDefinition): MinimizationReport {
 
   const isAlreadyMinimal =
     unreachableStatesRemoved.length === 0 &&
-    minimizedMachine.states.length === machine.states.length;
+    minimizedMachine.states.length === machine.states.length &&
+    completedMachine.states.length === machine.states.length;
 
   return {
     originalMachine: machine,
@@ -224,6 +261,7 @@ export function minimizeDFA(machine: AutomatonDefinition): MinimizationReport {
     initialPartition,
     iterations,
     equivalentStateGroups,
+    distinguishingStrings,
     statesBefore: machine.states.length,
     statesAfter: minimizedMachine.states.length,
     transitionsBefore: machine.transitions.length,

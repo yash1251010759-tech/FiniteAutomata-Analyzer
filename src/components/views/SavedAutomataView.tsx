@@ -1,9 +1,16 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AutomatonDefinition } from '../../types/automata';
 import { getSavedAutomata, saveAutomaton, deleteAutomaton } from '../../utils/storage';
 import { exportAutomatonAsJSON, validateImportedAutomaton } from '../../utils/exportUtils';
-import { FolderHeart, Search, Plus, Upload, Download, Copy, Trash2, ArrowRight, Hammer } from 'lucide-react';
+import { FolderHeart, Search, Upload, Download, Copy, Trash2, Hammer } from 'lucide-react';
 import { NavigationTab } from '../layout/Sidebar';
+import { useAuth } from '../../auth/authContext';
+import {
+  deleteCloudAutomaton,
+  listCloudAutomata,
+  saveCloudAutomaton,
+} from '../../services/savedAutomataRepository';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 interface SavedAutomataViewProps {
   onSelectMachine: (m: AutomatonDefinition) => void;
@@ -14,10 +21,56 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
   onSelectMachine,
   onNavigate,
 }) => {
-  const [automataList, setAutomataList] = useState<AutomatonDefinition[]>(getSavedAutomata);
+  const { user } = useAuth();
+  const [automataList, setAutomataList] = useState<AutomatonDefinition[]>([]);
+  const [loadedUserId, setLoadedUserId] = useState<string | null | undefined>();
+  const [errorMessage, setErrorMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const userId = user?.id ?? null;
+  const isLoading = loadedUserId !== userId;
+
+  useEffect(() => {
+    let active = true;
+
+    const loadAutomata = async () => {
+      try {
+        const machines = userId ? await listCloudAutomata(userId) : getSavedAutomata();
+        if (active) {
+          setAutomataList(machines);
+          setErrorMessage('');
+        }
+      } catch (error) {
+        console.error('Failed to load saved automata', error);
+        if (active) {
+          setErrorMessage(getErrorMessage(error, 'Failed to load saved automata.'));
+          setAutomataList([]);
+        }
+      } finally {
+        if (active) setLoadedUserId(userId);
+      }
+    };
+
+    void loadAutomata();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const reloadAutomata = async () => {
+    if (user) {
+      setAutomataList(await listCloudAutomata(user.id));
+    } else {
+      setAutomataList(getSavedAutomata());
+    }
+  };
+
+  const persistAutomaton = async (machine: AutomatonDefinition) => {
+    saveAutomaton(machine);
+    if (user) await saveCloudAutomaton(user.id, machine);
+    await reloadAutomata();
+  };
 
   const allTags = ['ALL', 'DFA', 'NFA', 'MOORE', 'MEALY'];
 
@@ -30,21 +83,31 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
   });
 
   // Duplicate machine
-  const handleDuplicate = (m: AutomatonDefinition) => {
+  const handleDuplicate = async (m: AutomatonDefinition) => {
     const dup: AutomatonDefinition = {
       ...m,
       id: `copy-${Date.now()}`,
       name: `${m.name} (Copy)`,
     };
-    saveAutomaton(dup);
-    setAutomataList(getSavedAutomata());
+    try {
+      setErrorMessage('');
+      await persistAutomaton(dup);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, 'Failed to duplicate automaton.'));
+    }
   };
 
   // Delete machine
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Delete this saved automaton?')) {
-      deleteAutomaton(id);
-      setAutomataList(getSavedAutomata());
+      try {
+        setErrorMessage('');
+        deleteAutomaton(id);
+        if (user) await deleteCloudAutomaton(user.id, id);
+        await reloadAutomata();
+      } catch (error) {
+        setErrorMessage(getErrorMessage(error, 'Failed to delete automaton.'));
+      }
     }
   };
 
@@ -54,19 +117,19 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = event => {
+    reader.onload = async event => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         const { valid, machine, error } = validateImportedAutomaton(parsed);
         if (valid && machine) {
-          saveAutomaton(machine);
-          setAutomataList(getSavedAutomata());
+          setErrorMessage('');
+          await persistAutomaton(machine);
           alert(`Successfully imported "${machine.name}"!`);
         } else {
-          alert(`Import failed: ${error}`);
+          setErrorMessage(`Import failed: ${error}`);
         }
-      } catch (err) {
-        alert('Invalid JSON file format.');
+      } catch (error) {
+        setErrorMessage(getErrorMessage(error, 'Invalid JSON file format or save failed.'));
       }
     };
     reader.readAsText(file);
@@ -83,7 +146,9 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
             <span>Saved Automata Repository</span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Manage your personal library of created, converted, and simulated machines
+            {user
+              ? 'Your cloud library, synced with your Supabase account'
+              : 'Your local library, stored in this browser'}
           </p>
         </div>
 
@@ -104,6 +169,12 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
           </button>
         </div>
       </div>
+
+      {errorMessage && (
+        <p className="rounded-xl border border-rose-900/70 bg-rose-950/40 p-3 text-xs text-rose-300" role="alert">
+          {errorMessage}
+        </p>
+      )}
 
       {/* Search & Tag Filter Bar */}
       <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 backdrop-blur-md">
@@ -136,79 +207,83 @@ export const SavedAutomataView: React.FC<SavedAutomataViewProps> = ({
       </div>
 
       {/* Grid of Saved Automata Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(machine => (
-          <div
-            key={machine.id}
-            className="p-5 rounded-3xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all flex flex-col justify-between space-y-4 shadow-lg group"
-          >
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-lg">
-                  {machine.type}
-                </span>
-                <span className="text-[11px] font-mono text-slate-500">
-                  {machine.states.length} states • {machine.transitions.length} edges
-                </span>
+      {isLoading ? (
+        <p className="py-8 text-center text-sm text-slate-400">Loading saved automata…</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(machine => (
+            <div
+              key={machine.id}
+              className="p-5 rounded-3xl bg-slate-900/70 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 transition-all flex flex-col justify-between space-y-4 shadow-lg group"
+            >
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-lg">
+                    {machine.type}
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    {machine.states.length} states • {machine.transitions.length} edges
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-white group-hover:text-indigo-300 transition-colors">
+                    {machine.name}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                    {machine.description || 'Custom finite automaton created in editor.'}
+                  </p>
+                </div>
+
+                <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
+                  <span>Alphabet: Σ = {`{${machine.alphabet.join(', ')}}`}</span>
+                  <span>Final: {machine.finalStateIds.length}</span>
+                </div>
               </div>
 
-              <div>
-                <h3 className="text-base font-bold text-white group-hover:text-indigo-300 transition-colors">
-                  {machine.name}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
-                  {machine.description || 'Custom finite automaton created in editor.'}
-                </p>
-              </div>
+              {/* Actions Bar */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800/80">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => exportAutomatonAsJSON(machine)}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Export JSON"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDuplicate(machine)}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                    title="Duplicate Machine"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(machine.id)}
+                    className="p-1.5 text-rose-400 hover:bg-rose-500/20 rounded-lg transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
-              <div className="p-2.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center justify-between">
-                <span>Alphabet: Σ = {`{${machine.alphabet.join(', ')}}`}</span>
-                <span>Final: {machine.finalStateIds.length}</span>
+                <button
+                  onClick={() => {
+                    onSelectMachine(machine);
+                    onNavigate('builder');
+                  }}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 shadow-md shadow-indigo-600/30 transition-all"
+                >
+                  <Hammer className="w-3 h-3" />
+                  <span>Open in Builder</span>
+                </button>
               </div>
             </div>
+          ))}
+        </div>
+      )}
 
-            {/* Actions Bar */}
-            <div className="flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => exportAutomatonAsJSON(machine)}
-                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                  title="Export JSON"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleDuplicate(machine)}
-                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                  title="Duplicate Machine"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleDelete(machine.id)}
-                  className="p-1.5 text-rose-400 hover:bg-rose-500/20 rounded-lg transition-colors"
-                  title="Delete"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <button
-                onClick={() => {
-                  onSelectMachine(machine);
-                  onNavigate('builder');
-                }}
-                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1 shadow-md shadow-indigo-600/30 transition-all"
-              >
-                <Hammer className="w-3 h-3" />
-                <span>Open in Builder</span>
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {filtered.length === 0 && (
+      {!isLoading && filtered.length === 0 && (
         <div className="p-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-3xl">
           No saved automata match your query.
         </div>

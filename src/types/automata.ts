@@ -143,7 +143,7 @@ export interface PDAStep {
   stepIndex: number;
   stateId: string;
   remainingInput: string;
-  stack: string[]; // top of stack is stack[0] or stack[stack.length - 1]
+  stack: string[]; // bottom is stack[0]; top is stack[stack.length - 1]
   appliedTransition?: PDATransition;
   explanation: string;
 }
@@ -164,8 +164,8 @@ export interface TMDefinition {
   description?: string;
   states: StateNode[];
   inputAlphabet: string[];
-  tapeAlphabet: string[]; // includes Blank symbol 'B'
-  blankSymbol: string; // usually 'B' or '␣'
+  tapeAlphabet: string[]; // includes the blank symbol (for example '_')
+  blankSymbol: string; // consistent blank symbol used on the tape
   startStateId: string;
   acceptStateId: string;
   rejectStateId?: string;
@@ -178,6 +178,9 @@ export interface TMStep {
   headIndex: number;
   tape: string[];
   actionDescription: string;
+  readSymbol?: string;
+  writtenSymbol?: string;
+  direction?: 'L' | 'R' | 'S';
   isAccept?: boolean;
   isReject?: boolean;
 }

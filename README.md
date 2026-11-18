@@ -106,6 +106,17 @@ An interactive, modern, responsive digital laboratory for **Automata Theory and 
    http://localhost:5173/
    ```
 
+### Supabase setup
+
+The app can use Supabase Auth and Postgres to sync saved automata. Guest automata, preferences, and learning progress remain in browser storage; preferences and progress are not cloud-synced yet.
+
+1. Copy `.env.example` to `.env.local` and set your Supabase project URL and publishable key.
+2. In the Supabase Dashboard, open **SQL Editor** and run `supabase/migrations/20261118000000_create_saved_automata.sql`.
+3. In **Authentication → URL Configuration**, add your local app URL (`http://localhost:5173`) to the allowed redirect URLs.
+4. In SQL Editor, also run `supabase/migrations/20261118000001_create_user_profiles.sql` to create the profile table and signup trigger.
+5. If the tables were created before explicit grants were added, run `supabase/migrations/20261118000002_grant_authenticated_table_access.sql`.
+6. Restart the Vite dev server. The app shows a dedicated sign-in/sign-up page and opens the workspace after authentication. Supabase Auth manages email/password; the signup trigger creates the profile row with username and full name. Click **Save** in the Automata Builder to save the current machine. Row Level Security restricts access to each user's own rows.
+
 ### Building for Production
 
 ```bash

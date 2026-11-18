@@ -66,7 +66,7 @@ export const UniversalStringSimulator: React.FC<UniversalStringSimulatorProps> =
       return { pda: res };
     }
     if (model.type === 'TM') {
-      const res = simulateTuringMachine(model.machine, inputString, 1000);
+      const res = simulateTuringMachine(model.machine, inputString);
       return { tm: res };
     }
     return {};

@@ -1,7 +1,7 @@
 import { TMDefinition, TMStep, TMTransition } from '../types/automata';
 
 export interface TMSimulationResult {
-  status: 'ACCEPTED' | 'REJECTED' | 'HALTED' | 'LOOP_DETECTED';
+  status: 'ACCEPTED' | 'REJECTED' | 'LOOP_DETECTED' | 'INVALID_INPUT' | 'INVALID_MACHINE';
   reason: string;
   totalSteps: number;
   finalTape: string[];
@@ -10,193 +10,427 @@ export interface TMSimulationResult {
   steps: TMStep[];
 }
 
-export function simulateTuringMachine(
-  tm: TMDefinition,
-  input: string,
-  maxSteps = 500
-): TMSimulationResult {
-  // Initialize tape with input string padded with blanks on left and right
-  const blank = tm.blankSymbol || 'B';
-  const leftPadding = 5;
-  const rightPadding = 15;
+export interface TMValidationResult {
+  errors: string[];
+  duplicateTransitions: Array<{ stateId: string; symbol: string }>;
+}
 
-  let tape: string[] = [
-    ...Array(leftPadding).fill(blank),
-    ...(input.length > 0 ? input.split('') : [blank]),
-    ...Array(rightPadding).fill(blank),
-  ];
+export function validateTuringMachine(tm: TMDefinition): TMValidationResult {
+  const errors: string[] = [];
+  const stateIds = new Set(tm.states.map(state => state.id));
+  const duplicateTransitions: Array<{ stateId: string; symbol: string }> = [];
+  const seenTransitions = new Set<string>();
 
-  let head = leftPadding;
-  let currentState = tm.startStateId;
-  const steps: TMStep[] = [];
-
-  const startStep: TMStep = {
-    stepIndex: 0,
-    stateId: currentState,
-    headIndex: head,
-    tape: [...tape],
-    actionDescription: `Initialized at start state ${currentState}. Head positioned at symbol '${tape[head]}'.`,
-  };
-  steps.push(startStep);
-
-  let stepCount = 0;
-
-  while (stepCount < maxSteps) {
-    // Check if accept or reject state reached
-    if (currentState === tm.acceptStateId) {
-      return {
-        status: 'ACCEPTED',
-        reason: `Reached designated ACCEPT state '${currentState}'. Computation succeeded!`,
-        totalSteps: stepCount,
-        finalTape: tape,
-        finalHeadIndex: head,
-        finalStateId: currentState,
-        steps,
-      };
+  if (!stateIds.has(tm.startStateId)) {
+    errors.push(`Start state '${tm.startStateId}' does not exist.`);
+  }
+  if (!tm.acceptStateId || !stateIds.has(tm.acceptStateId)) {
+    errors.push('At least one accepting state must exist and be selected.');
+  }
+  if (tm.rejectStateId && !stateIds.has(tm.rejectStateId)) {
+    errors.push(`Reject state '${tm.rejectStateId}' does not exist.`);
+  }
+  if (!tm.blankSymbol || tm.inputAlphabet.includes(tm.blankSymbol)) {
+    errors.push('The blank symbol must be defined and must not be in the input alphabet.');
+  }
+  if (!tm.tapeAlphabet.includes(tm.blankSymbol)) {
+    errors.push(`Blank symbol '${tm.blankSymbol}' must be included in the tape alphabet.`);
+  }
+  for (const symbol of tm.inputAlphabet) {
+    if (!tm.tapeAlphabet.includes(symbol)) {
+      errors.push(`Input symbol '${symbol}' is not in the tape alphabet.`);
     }
-
-    if (tm.rejectStateId && currentState === tm.rejectStateId) {
-      return {
-        status: 'REJECTED',
-        reason: `Entered designated REJECT state '${currentState}'.`,
-        totalSteps: stepCount,
-        finalTape: tape,
-        finalHeadIndex: head,
-        finalStateId: currentState,
-        steps,
-      };
-    }
-
-    const currentSym = tape[head] !== undefined ? tape[head] : blank;
-
-    // Look for transition δ(currentState, currentSym)
-    const trans = tm.transitions.find(
-      t => t.from === currentState && t.readSymbol === currentSym
-    );
-
-    if (!trans) {
-      // No transition defined: if current state is accept, accept; else reject
-      const isAccept = currentState === tm.acceptStateId;
-      return {
-        status: isAccept ? 'ACCEPTED' : 'REJECTED',
-        reason: isAccept
-          ? `Halted in accept state ${currentState}.`
-          : `No transition δ(${currentState}, '${currentSym}') defined. Machine halted and REJECTED.`,
-        totalSteps: stepCount,
-        finalTape: tape,
-        finalHeadIndex: head,
-        finalStateId: currentState,
-        steps,
-      };
-    }
-
-    stepCount++;
-    // Write symbol
-    tape[head] = trans.writeSymbol;
-
-    // Move head
-    if (trans.direction === 'L') {
-      head--;
-      if (head < 0) {
-        // Expand tape left
-        tape.unshift(blank);
-        head = 0;
-      }
-    } else if (trans.direction === 'R') {
-      head++;
-      if (head >= tape.length) {
-        // Expand tape right
-        tape.push(blank);
-      }
-    }
-
-    // Update state
-    currentState = trans.to;
-
-    steps.push({
-      stepIndex: stepCount,
-      stateId: currentState,
-      headIndex: head,
-      tape: [...tape],
-      actionDescription: `Read '${currentSym}', wrote '${trans.writeSymbol}', moved ${trans.direction}, next state: ${currentState}.`,
-      isAccept: currentState === tm.acceptStateId,
-      isReject: currentState === tm.rejectStateId,
-    });
   }
 
+  for (const transition of tm.transitions) {
+    const key = JSON.stringify([transition.from, transition.readSymbol]);
+    if (seenTransitions.has(key)) {
+      duplicateTransitions.push({ stateId: transition.from, symbol: transition.readSymbol });
+    }
+    seenTransitions.add(key);
+
+    if (!stateIds.has(transition.from)) {
+      errors.push(`Transition source state '${transition.from}' does not exist.`);
+    }
+    if (!stateIds.has(transition.to)) {
+      errors.push(`Transition destination state '${transition.to}' does not exist.`);
+    }
+    if (!['L', 'R', 'S'].includes(transition.direction)) {
+      errors.push(`Transition move '${transition.direction}' is invalid; use L, R, or S.`);
+    }
+    if (!tm.tapeAlphabet.includes(transition.readSymbol)) {
+      errors.push(`Read symbol '${transition.readSymbol}' is not in the tape alphabet.`);
+    }
+    if (!tm.tapeAlphabet.includes(transition.writeSymbol)) {
+      errors.push(`Write symbol '${transition.writeSymbol}' is not in the tape alphabet.`);
+    }
+  }
+
+  for (const duplicate of duplicateTransitions) {
+    errors.push(`Duplicate transition for (${duplicate.stateId}, ${duplicate.symbol}); TM must be deterministic.`);
+  }
+
+  return { errors, duplicateTransitions };
+}
+
+function makeResult(
+  status: TMSimulationResult['status'],
+  reason: string,
+  totalSteps: number,
+  tape: string[],
+  head: number,
+  stateId: string,
+  steps: TMStep[]
+): TMSimulationResult {
   return {
-    status: 'LOOP_DETECTED',
-    reason: `Simulation limit of ${maxSteps} steps reached. Possible infinite loop.`,
-    totalSteps: stepCount,
+    status,
+    reason,
+    totalSteps,
     finalTape: tape,
     finalHeadIndex: head,
-    finalStateId: currentState,
+    finalStateId: stateId,
     steps,
   };
 }
 
-// Sample Turing Machines
+export function simulateTuringMachine(
+  tm: TMDefinition,
+  input: string,
+  maxSteps = 10_000
+): TMSimulationResult {
+  const blank = tm.blankSymbol || '⊔';
+  const tape = input.length > 0 ? [...input] : [blank];
+  let head = 0;
+  let currentState = tm.startStateId;
+  const steps: TMStep[] = [];
+  const pushStep = (
+    stepIndex: number,
+    actionDescription: string,
+    details?: Pick<TMStep, 'readSymbol' | 'writtenSymbol' | 'direction'>
+  ) => {
+    steps.push({
+      stepIndex,
+      stateId: currentState,
+      headIndex: head,
+      tape: [...tape],
+      actionDescription,
+      ...details,
+      isAccept: currentState === tm.acceptStateId,
+      isReject: currentState === tm.rejectStateId,
+    });
+  };
+  const invalidSymbol = [...input].find(symbol =>
+    symbol === blank || !tm.inputAlphabet.includes(symbol)
+  );
+
+  pushStep(
+    0,
+    `Initialized at start state ${currentState}; head at cell 0 reading '${tape[0]}'.`
+  );
+
+  if (invalidSymbol !== undefined) {
+    return makeResult(
+      'INVALID_INPUT',
+      `Symbol '${invalidSymbol}' is not in Σ = {${tm.inputAlphabet.join(', ')}}.`,
+      0,
+      tape,
+      head,
+      currentState,
+      steps
+    );
+  }
+
+  const validation = validateTuringMachine(tm);
+  if (validation.errors.length > 0) {
+    return makeResult(
+      'INVALID_MACHINE',
+      validation.errors.join(' '),
+      0,
+      tape,
+      head,
+      currentState,
+      steps
+    );
+  }
+
+  if (!Number.isInteger(maxSteps) || maxSteps < 0) {
+    return makeResult(
+      'INVALID_MACHINE',
+      'The step limit must be a non-negative integer.',
+      0,
+      tape,
+      head,
+      currentState,
+      steps
+    );
+  }
+
+  let stepCount = 0;
+  while (true) {
+    if (currentState === tm.acceptStateId) {
+      return makeResult(
+        'ACCEPTED',
+        'ACCEPTED (reached accept state)',
+        stepCount,
+        tape,
+        head,
+        currentState,
+        steps
+      );
+    }
+    if (currentState === tm.rejectStateId) {
+      return makeResult(
+        'REJECTED',
+        'REJECTED (reached reject state)',
+        stepCount,
+        tape,
+        head,
+        currentState,
+        steps
+      );
+    }
+    if (stepCount >= maxSteps) {
+      return makeResult(
+        'LOOP_DETECTED',
+        `No halt within ${maxSteps} steps (possibly looping)`,
+        stepCount,
+        tape,
+        head,
+        currentState,
+        steps
+      );
+    }
+
+    const readSymbol = tape[head] ?? blank;
+    const transition: TMTransition | undefined = tm.transitions.find(
+      candidate => candidate.from === currentState && candidate.readSymbol === readSymbol
+    );
+    if (!transition) {
+      return makeResult(
+        'REJECTED',
+        `REJECTED (no transition for (${currentState}, ${readSymbol}))`,
+        stepCount,
+        tape,
+        head,
+        currentState,
+        steps
+      );
+    }
+
+    tape[head] = transition.writeSymbol;
+    if (transition.direction === 'L') {
+      head--;
+      if (head < 0) {
+        tape.unshift(blank);
+        head = 0;
+      }
+    } else if (transition.direction === 'R') {
+      head++;
+      if (head >= tape.length) tape.push(blank);
+    }
+    currentState = transition.to;
+    stepCount++;
+    pushStep(
+      stepCount,
+      `Step ${stepCount}: state ${currentState}; head at cell ${head}; read '${readSymbol}', wrote '${transition.writeSymbol}', moved ${transition.direction}.`,
+      {
+        readSymbol,
+        writtenSymbol: transition.writeSymbol,
+        direction: transition.direction,
+      }
+    );
+  }
+}
+
+function makeStates(
+  ids: string[],
+  finalStateId: string,
+  descriptions: string[] = []
+): TMDefinition['states'] {
+  return ids.map((id, index) => ({
+    id,
+    label: id,
+    x: 100 + index * 150,
+    y: 180,
+    isStart: index === 0,
+    isFinal: id === finalStateId,
+    description: descriptions[index],
+  }));
+}
+
+function identifyTransitions(transitions: Omit<TMTransition, 'id'>[]): TMTransition[] {
+  return transitions.map((transition, index) => ({
+    ...transition,
+    id: `transition-${index + 1}`,
+  }));
+}
+
 export const sampleTuringMachines: TMDefinition[] = [
   {
     id: 'tm-binary-inc',
     name: 'TM: Binary Incrementer (+1)',
-    description: 'Increments an arbitrary binary integer by 1. Traverses to the right end, flips trailing 1s to 0s, changes first 0 to 1, and halts.',
-    states: [
-      { id: 'q_find_end', label: 'q_find_end', x: 150, y: 180, isStart: true, description: 'Move head to end of input' },
-      { id: 'q_add_carry', label: 'q_add_carry', x: 380, y: 180, description: 'Add 1 and propagate carry' },
-      { id: 'q_accept', label: 'q_accept', x: 620, y: 180, isFinal: true, description: 'Halt and accept' },
-    ],
+    description: 'Adds one to the binary number on the tape and halts in the accept state.',
+    states: makeStates(
+      ['q_start', 'q_end', 'q_carry', 'q_accept'],
+      'q_accept',
+      ['Handle empty input', 'Find the right end', 'Propagate the carry', 'Accept']
+    ),
     inputAlphabet: ['0', '1'],
-    tapeAlphabet: ['0', '1', 'B'],
-    blankSymbol: 'B',
-    startStateId: 'q_find_end',
+    tapeAlphabet: ['0', '1', '_'],
+    blankSymbol: '_',
+    startStateId: 'q_start',
     acceptStateId: 'q_accept',
     transitions: [
-      // q_find_end: move right over 0s and 1s until blank
-      { id: 't1', from: 'q_find_end', to: 'q_find_end', readSymbol: '0', writeSymbol: '0', direction: 'R' },
-      { id: 't2', from: 'q_find_end', to: 'q_find_end', readSymbol: '1', writeSymbol: '1', direction: 'R' },
-      { id: 't3', from: 'q_find_end', to: 'q_add_carry', readSymbol: 'B', writeSymbol: 'B', direction: 'L' },
-
-      // q_add_carry: if 1, change to 0 and move left (carry); if 0, change to 1 and accept; if blank, write 1 and accept
-      { id: 't4', from: 'q_add_carry', to: 'q_add_carry', readSymbol: '1', writeSymbol: '0', direction: 'L' },
-      { id: 't5', from: 'q_add_carry', to: 'q_accept', readSymbol: '0', writeSymbol: '1', direction: 'S' },
-      { id: 't6', from: 'q_add_carry', to: 'q_accept', readSymbol: 'B', writeSymbol: '1', direction: 'S' },
+      { id: 'inc0', from: 'q_start', to: 'q_end', readSymbol: '0', writeSymbol: '0', direction: 'R' },
+      { id: 'inc1', from: 'q_start', to: 'q_end', readSymbol: '1', writeSymbol: '1', direction: 'R' },
+      { id: 'incEmpty', from: 'q_start', to: 'q_accept', readSymbol: '_', writeSymbol: '1', direction: 'S' },
+      { id: 'inc2', from: 'q_end', to: 'q_end', readSymbol: '0', writeSymbol: '0', direction: 'R' },
+      { id: 'inc3', from: 'q_end', to: 'q_end', readSymbol: '1', writeSymbol: '1', direction: 'R' },
+      { id: 'inc4', from: 'q_end', to: 'q_carry', readSymbol: '_', writeSymbol: '_', direction: 'L' },
+      { id: 'inc5', from: 'q_carry', to: 'q_carry', readSymbol: '1', writeSymbol: '0', direction: 'L' },
+      { id: 'inc6', from: 'q_carry', to: 'q_accept', readSymbol: '0', writeSymbol: '1', direction: 'S' },
+      { id: 'inc7', from: 'q_carry', to: 'q_accept', readSymbol: '_', writeSymbol: '1', direction: 'S' },
     ],
   },
   {
     id: 'tm-0n1n',
     name: 'TM: Language {0^n 1^n | n ≥ 1}',
-    description: 'Crosses off 0 with X, traverses right to cross off matching 1 with Y, and repeats. Halts in accept state when all symbols match.',
-    states: [
-      { id: 'q0', label: 'q0', x: 120, y: 180, isStart: true, description: 'Mark 0 as X' },
-      { id: 'q1', label: 'q1', x: 280, y: 180, description: 'Look for matching 1' },
-      { id: 'q2', label: 'q2', x: 440, y: 180, description: 'Return left to next 0' },
-      { id: 'q3', label: 'q3', x: 600, y: 180, description: 'Verify all symbols matched' },
-      { id: 'q_acc', label: 'q_acc', x: 750, y: 180, isFinal: true, description: 'Accept' },
-    ],
+    description: 'Marks matching 0 and 1 pairs, then verifies every 1 was matched.',
+    states: makeStates(['q0', 'q1', 'q2', 'q3', 'q_acc'], 'q_acc'),
     inputAlphabet: ['0', '1'],
-    tapeAlphabet: ['0', '1', 'X', 'Y', 'B'],
-    blankSymbol: 'B',
+    tapeAlphabet: ['0', '1', 'X', 'Y', '_'],
+    blankSymbol: '_',
     startStateId: 'q0',
     acceptStateId: 'q_acc',
     transitions: [
-      // q0: replace 0 with X -> move to q1; if Y, move to q3
-      { id: 'tm1', from: 'q0', to: 'q1', readSymbol: '0', writeSymbol: 'X', direction: 'R' },
-      { id: 'tm2', from: 'q0', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-
-      // q1: move right past 0s and Ys to find 1
-      { id: 'tm3', from: 'q1', to: 'q1', readSymbol: '0', writeSymbol: '0', direction: 'R' },
-      { id: 'tm4', from: 'q1', to: 'q1', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm5', from: 'q1', to: 'q2', readSymbol: '1', writeSymbol: 'Y', direction: 'L' },
-
-      // q2: move left past Ys and 0s back to X
-      { id: 'tm6', from: 'q2', to: 'q2', readSymbol: '0', writeSymbol: '0', direction: 'L' },
-      { id: 'tm7', from: 'q2', to: 'q2', readSymbol: 'Y', writeSymbol: 'Y', direction: 'L' },
-      { id: 'tm8', from: 'q2', to: 'q0', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
-
-      // q3: verify rest of tape is all Ys until blank
-      { id: 'tm9', from: 'q3', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm10', from: 'q3', to: 'q_acc', readSymbol: 'B', writeSymbol: 'B', direction: 'S' },
+      { id: 'anbn1', from: 'q0', to: 'q1', readSymbol: '0', writeSymbol: 'X', direction: 'R' },
+      { id: 'anbn2', from: 'q0', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'anbn3', from: 'q1', to: 'q1', readSymbol: '0', writeSymbol: '0', direction: 'R' },
+      { id: 'anbn4', from: 'q1', to: 'q1', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'anbn5', from: 'q1', to: 'q2', readSymbol: '1', writeSymbol: 'Y', direction: 'L' },
+      { id: 'anbn6', from: 'q2', to: 'q2', readSymbol: '0', writeSymbol: '0', direction: 'L' },
+      { id: 'anbn7', from: 'q2', to: 'q2', readSymbol: 'Y', writeSymbol: 'Y', direction: 'L' },
+      { id: 'anbn8', from: 'q2', to: 'q0', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { id: 'anbn9', from: 'q3', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'anbn10', from: 'q3', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
     ],
+  },
+  {
+    id: 'tm-anbncn',
+    name: 'TM: Language {a^n b^n c^n | n ≥ 1}',
+    description: 'Marks a matching a, b, c triple and verifies all marked symbols are balanced.',
+    states: makeStates(['q0', 'q1', 'q2', 'q3', 'q4', 'q_acc'], 'q_acc'),
+    inputAlphabet: ['a', 'b', 'c'],
+    tapeAlphabet: ['a', 'b', 'c', 'X', 'Y', 'Z', '_'],
+    blankSymbol: '_',
+    startStateId: 'q0',
+    acceptStateId: 'q_acc',
+    transitions: [
+      { id: 'abc1', from: 'q0', to: 'q1', readSymbol: 'a', writeSymbol: 'X', direction: 'R' },
+      { id: 'abc2', from: 'q0', to: 'q4', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'abc3', from: 'q1', to: 'q1', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
+      { id: 'abc4', from: 'q1', to: 'q1', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'abc5', from: 'q1', to: 'q2', readSymbol: 'b', writeSymbol: 'Y', direction: 'R' },
+      { id: 'abc6', from: 'q2', to: 'q2', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
+      { id: 'abc7', from: 'q2', to: 'q2', readSymbol: 'Z', writeSymbol: 'Z', direction: 'R' },
+      { id: 'abc8', from: 'q2', to: 'q3', readSymbol: 'c', writeSymbol: 'Z', direction: 'L' },
+      { id: 'abc9', from: 'q3', to: 'q3', readSymbol: 'Z', writeSymbol: 'Z', direction: 'L' },
+      { id: 'abc10', from: 'q3', to: 'q3', readSymbol: 'b', writeSymbol: 'b', direction: 'L' },
+      { id: 'abc11', from: 'q3', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'L' },
+      { id: 'abc12', from: 'q3', to: 'q3', readSymbol: 'a', writeSymbol: 'a', direction: 'L' },
+      { id: 'abc13', from: 'q3', to: 'q0', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { id: 'abc14', from: 'q4', to: 'q4', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
+      { id: 'abc15', from: 'q4', to: 'q4', readSymbol: 'Z', writeSymbol: 'Z', direction: 'R' },
+      { id: 'abc16', from: 'q4', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+    ],
+  },
+  {
+    id: 'tm-palindrome',
+    name: 'TM: Palindromes over {a, b}',
+    description: 'Marks matching outer symbols until the remaining center is empty or a single symbol.',
+    states: makeStates(['q_scan', 'q_seek_a', 'q_seek_b', 'q_check_a', 'q_check_b', 'q_return', 'q_acc'], 'q_acc'),
+    inputAlphabet: ['a', 'b'],
+    tapeAlphabet: ['a', 'b', 'X', '_'],
+    blankSymbol: '_',
+    startStateId: 'q_scan',
+    acceptStateId: 'q_acc',
+    transitions: identifyTransitions([
+      { from: 'q_scan', to: 'q_scan', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_seek_a', readSymbol: 'a', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_seek_b', readSymbol: 'b', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_check_a', readSymbol: '_', writeSymbol: '_', direction: 'L' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_check_b', readSymbol: '_', writeSymbol: '_', direction: 'L' },
+      { from: 'q_check_a', to: 'q_check_a', readSymbol: 'X', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_check_a', to: 'q_return', readSymbol: 'a', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_check_a', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+      { from: 'q_check_b', to: 'q_check_b', readSymbol: 'X', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_check_b', to: 'q_return', readSymbol: 'b', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_check_b', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+      { from: 'q_return', to: 'q_return', readSymbol: 'a', writeSymbol: 'a', direction: 'L' },
+      { from: 'q_return', to: 'q_return', readSymbol: 'b', writeSymbol: 'b', direction: 'L' },
+      { from: 'q_return', to: 'q_return', readSymbol: 'X', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_return', to: 'q_scan', readSymbol: '_', writeSymbol: '_', direction: 'R' },
+    ]),
+  },
+  {
+    id: 'tm-ww',
+    name: 'TM: Language {w#w}',
+    description: 'Marks the left half and checks each corresponding symbol in the right half.',
+    states: makeStates(['q_scan', 'q_seek_a', 'q_seek_b', 'q_match_a', 'q_match_b', 'q_rewind', 'q_verify', 'q_acc'], 'q_acc'),
+    inputAlphabet: ['a', 'b', '#'],
+    tapeAlphabet: ['a', 'b', '#', 'X', '_'],
+    blankSymbol: '_',
+    startStateId: 'q_scan',
+    acceptStateId: 'q_acc',
+    transitions: identifyTransitions([
+      { from: 'q_scan', to: 'q_scan', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_seek_a', readSymbol: 'a', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_seek_b', readSymbol: 'b', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_scan', to: 'q_verify', readSymbol: '#', writeSymbol: '#', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_seek_a', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_seek_a', to: 'q_match_a', readSymbol: '#', writeSymbol: '#', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_seek_b', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_seek_b', to: 'q_match_b', readSymbol: '#', writeSymbol: '#', direction: 'R' },
+      { from: 'q_match_a', to: 'q_match_a', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_match_a', to: 'q_rewind', readSymbol: 'a', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_match_b', to: 'q_match_b', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_match_b', to: 'q_rewind', readSymbol: 'b', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_rewind', to: 'q_rewind', readSymbol: 'a', writeSymbol: 'a', direction: 'L' },
+      { from: 'q_rewind', to: 'q_rewind', readSymbol: 'b', writeSymbol: 'b', direction: 'L' },
+      { from: 'q_rewind', to: 'q_rewind', readSymbol: '#', writeSymbol: '#', direction: 'L' },
+      { from: 'q_rewind', to: 'q_rewind', readSymbol: 'X', writeSymbol: 'X', direction: 'L' },
+      { from: 'q_rewind', to: 'q_scan', readSymbol: '_', writeSymbol: '_', direction: 'R' },
+      { from: 'q_verify', to: 'q_verify', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
+      { from: 'q_verify', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+    ]),
+  },
+  {
+    id: 'tm-even-ones',
+    name: 'TM: Even number of 1s',
+    description: 'Tracks the parity of 1 symbols and accepts at the right-end blank in the even state.',
+    states: makeStates(['q_even', 'q_odd', 'q_acc'], 'q_acc'),
+    inputAlphabet: ['0', '1'],
+    tapeAlphabet: ['0', '1', '_'],
+    blankSymbol: '_',
+    startStateId: 'q_even',
+    acceptStateId: 'q_acc',
+    transitions: identifyTransitions([
+      { from: 'q_even', to: 'q_even', readSymbol: '0', writeSymbol: '0', direction: 'R' },
+      { from: 'q_even', to: 'q_odd', readSymbol: '1', writeSymbol: '1', direction: 'R' },
+      { from: 'q_even', to: 'q_acc', readSymbol: '_', writeSymbol: '_', direction: 'S' },
+      { from: 'q_odd', to: 'q_odd', readSymbol: '0', writeSymbol: '0', direction: 'R' },
+      { from: 'q_odd', to: 'q_even', readSymbol: '1', writeSymbol: '1', direction: 'R' },
+    ]),
   },
 ];

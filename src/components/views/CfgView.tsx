@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { CFGDefinition, ParseTreeNode, CFGProduction } from '../../types/automata';
-import { sampleGrammars, deriveString, generateSampleStringsFromCfg } from '../../algorithms/cfg';
+import {
+  sampleGrammars,
+  deriveString,
+  generateSampleStringsFromCfg,
+  getCFGSymbols,
+  hasTerminalDerivation,
+} from '../../algorithms/cfg';
 import {
   Workflow,
   Play,
@@ -27,6 +33,7 @@ export const CfgView: React.FC = () => {
   // New production inputs for custom editing
   const [newVar, setNewVar] = useState<string>('S');
   const [newReplacement, setNewReplacement] = useState<string>('');
+  const [ruleWarning, setRuleWarning] = useState<string>('');
 
   const handleDerive = (target?: string, grammar?: CFGDefinition) => {
     const g = grammar || selectedCfg;
@@ -37,10 +44,30 @@ export const CfgView: React.FC = () => {
 
   // Add custom production rule
   const handleAddProduction = () => {
-    const v = newVar.trim().toUpperCase();
+    const v = newVar.trim();
     const rep = newReplacement.trim();
-    if (!v || !rep) return;
+    if (!/^[A-Z]$/.test(v)) {
+      setRuleWarning('The left side must be a single uppercase variable.');
+      return;
+    }
+    if (!rep) {
+      setRuleWarning('Enter a replacement symbol or ε.');
+      return;
+    }
+    if (
+      selectedCfg.productions.some(
+        production =>
+          production.variable === v &&
+          (production.replacement.trim().toLowerCase() === rep.toLowerCase() ||
+            (['ε', 'λ', 'eps', 'epsilon'].includes(production.replacement.trim().toLowerCase()) &&
+              ['ε', 'λ', 'eps', 'epsilon'].includes(rep.toLowerCase())))
+      )
+    ) {
+      setRuleWarning(`Duplicate rule: ${v} → ${rep}.`);
+      return;
+    }
 
+    setRuleWarning('');
     const newProd: CFGProduction = {
       id: `p-${Date.now()}`,
       variable: v,
@@ -71,6 +98,7 @@ export const CfgView: React.FC = () => {
 
   // Generate example strings
   const generatedExamples = generateSampleStringsFromCfg(selectedCfg, 10);
+  const cfgSymbols = getCFGSymbols(selectedCfg);
 
   // Render SVG Parse Tree recursively
   const renderTree = (
@@ -159,7 +187,9 @@ export const CfgView: React.FC = () => {
               const found = sampleGrammars.find(g => g.id === e.target.value);
               if (found) {
                 setSelectedCfg(found);
-                handleDerive(undefined, found);
+                const sample = generateSampleStringsFromCfg(found, 1)[0] || '';
+                setTargetString(sample === 'ε' ? '' : sample);
+                handleDerive(sample, found);
               }
             }}
             className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-semibold focus:outline-none"
@@ -195,12 +225,27 @@ export const CfgView: React.FC = () => {
           {/* Grammar Tuples overview */}
           <div className="p-3 bg-slate-950/80 rounded-2xl border border-slate-800 text-[11px] font-mono space-y-1">
             <div className="text-slate-400">
-              Variables V = {'{' + selectedCfg.variables.join(', ') + '}'}
+              Variables V = {'{' + cfgSymbols.variables.join(', ') + '}'}
             </div>
             <div className="text-slate-400">
-              Terminals Σ = {'{' + selectedCfg.terminals.join(', ') + '}'}
+              Terminals Σ = {'{' + cfgSymbols.terminals.join(', ') + '}'}
             </div>
           </div>
+          {cfgSymbols.undefinedVariables.map(variable => (
+            <p key={variable} className="text-[11px] text-amber-300">
+              Variable {variable} has no rules, so it can never be eliminated.
+            </p>
+          ))}
+          {cfgSymbols.invalidLeftSides.map((leftSide, index) => (
+            <p key={`${leftSide}-${index}`} className="text-[11px] text-rose-300">
+              Invalid rule left side '{leftSide}': the left side must be a single uppercase variable.
+            </p>
+          ))}
+          {cfgSymbols.duplicateRules.map((rule, index) => (
+            <p key={`${rule.variable}-${rule.replacement}-${index}`} className="text-[11px] text-rose-300">
+              Duplicate rule: {rule.variable} → {rule.replacement}.
+            </p>
+          ))}
 
           {/* Rules list */}
           <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
@@ -231,7 +276,7 @@ export const CfgView: React.FC = () => {
             <input
               type="text"
               value={newVar}
-              onChange={e => setNewVar(e.target.value.toUpperCase())}
+              onChange={e => setNewVar(e.target.value)}
               placeholder="Var"
               className="w-14 px-2 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-indigo-300 font-mono text-center text-xs font-bold"
             />
@@ -250,6 +295,7 @@ export const CfgView: React.FC = () => {
               + Add
             </button>
           </div>
+          {ruleWarning && <p className="text-[11px] text-rose-300">{ruleWarning}</p>}
         </div>
 
         {/* Right: Dynamic Sample String Generator */}
@@ -267,6 +313,11 @@ export const CfgView: React.FC = () => {
           </p>
 
           <div className="flex flex-wrap gap-2 pt-2">
+            {generatedExamples.length === 0 && !hasTerminalDerivation(selectedCfg) ? (
+              <p className="text-xs text-amber-300">
+                L(G) is empty: no variable can derive a terminal string
+              </p>
+            ) : null}
             {generatedExamples.map((str, idx) => (
               <button
                 key={idx}
@@ -292,7 +343,7 @@ export const CfgView: React.FC = () => {
           <input
             type="text"
             value={targetString}
-            onChange={e => setTargetString(e.target.value.trim())}
+            onChange={e => setTargetString(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleDerive()}
             placeholder="e.g., aabb or ()"
             className="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-indigo-500 shadow-inner"
@@ -328,6 +379,9 @@ export const CfgView: React.FC = () => {
                 Target: "{targetString || 'ε'}"
               </span>
             </div>
+            {!analysisResult.valid && analysisResult.error && (
+              <p className="px-4 text-xs text-rose-300">{analysisResult.error}</p>
+            )}
 
             <button
               onClick={() => setActiveTermKey('derivation')}

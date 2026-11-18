@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavigationTab, Sidebar } from './components/layout/Sidebar';
 import { Navbar } from './components/layout/Navbar';
+import { AuthenticationPage } from './components/common/AuthenticationPage';
+import { SignedInAccountCard } from './components/common/SignedInAccountCard';
 import { DashboardView } from './components/views/DashboardView';
 import { LearnView } from './components/views/LearnView';
 import { BuilderView } from './components/views/BuilderView';
@@ -26,7 +28,10 @@ import { TutorialModal } from './components/views/TutorialModal';
 import { ShortcutsModal } from './components/views/ShortcutsModal';
 
 import { AutomatonDefinition } from './types/automata';
+import { useAuth } from './auth/authContext';
 import { predefinedAutomata } from './data/predefinedExamples';
+import { saveCloudAutomaton } from './services/savedAutomataRepository';
+import { getErrorMessage } from './utils/errorMessage';
 import {
   getUserPreferences,
   saveUserPreferences,
@@ -46,6 +51,10 @@ import {
 } from 'lucide-react';
 
 export function App() {
+  const { loading: authLoading, user } = useAuth();
+  const [cloudSaveError, setCloudSaveError] = useState('');
+  const cloudSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Navigation
   const [currentTab, setCurrentTab] = useState<NavigationTab>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
@@ -64,6 +73,58 @@ export function App() {
   // Preferences & User Stats
   const [preferences, setPreferences] = useState<UserPreferences>(getUserPreferences);
   const [userStats, setUserStats] = useState<UserProgressStats>(getUserStats);
+
+  useEffect(() => {
+    if (cloudSaveTimeout.current) {
+      clearTimeout(cloudSaveTimeout.current);
+      cloudSaveTimeout.current = null;
+    }
+  }, [user?.id]);
+
+  useEffect(
+    () => () => {
+      if (cloudSaveTimeout.current) clearTimeout(cloudSaveTimeout.current);
+    },
+    []
+  );
+
+  const handleSaveAutomaton = (machine: AutomatonDefinition) => {
+    saveAutomaton(machine);
+    if (!user) return;
+
+    if (cloudSaveTimeout.current) clearTimeout(cloudSaveTimeout.current);
+    cloudSaveTimeout.current = setTimeout(() => {
+      saveCloudAutomaton(user.id, machine)
+        .then(() => setCloudSaveError(''))
+        .catch(error => {
+          console.error('Failed to sync automaton to Supabase', error);
+          setCloudSaveError(getErrorMessage(error, 'Could not sync automaton to Supabase.'));
+        });
+    }, 600);
+  };
+
+  const handleExplicitSaveAutomaton = async (
+    machine: AutomatonDefinition
+  ): Promise<'local' | 'cloud'> => {
+    saveAutomaton(machine);
+    if (cloudSaveTimeout.current) {
+      clearTimeout(cloudSaveTimeout.current);
+      cloudSaveTimeout.current = null;
+    }
+
+    if (!user) return 'local';
+
+    try {
+      await saveCloudAutomaton(user.id, machine);
+      setCloudSaveError('');
+      return 'cloud';
+    } catch (error) {
+      console.error('Failed to save automaton to Supabase', error);
+      const message = getErrorMessage(error, 'Could not save automaton to Supabase.');
+      setCloudSaveError(message);
+      throw new Error(message);
+    }
+  };
 
   // Synchronize Dark / Light mode class on <html> element
   useEffect(() => {
@@ -106,6 +167,10 @@ export function App() {
         challengesSolved: [...userStats.challengesSolved, challengeId],
       });
     }
+  };
+
+  const handleResetChallenges = () => {
+    handleUpdateStats({ challengesSolved: [] });
   };
 
   // Quiz score update
@@ -186,6 +251,16 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  if (authLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-300">
+        Checking your account…
+      </main>
+    );
+  }
+
+  if (!user) return <AuthenticationPage />;
+
   return (
     <div
       className={`min-h-screen ${
@@ -238,6 +313,12 @@ export function App() {
 
         {/* View Switcher Container */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-12">
+          <SignedInAccountCard />
+          {cloudSaveError && (
+            <p className="mb-5 rounded-xl border border-rose-900/70 bg-rose-950/40 p-3 text-xs text-rose-300" role="alert">
+              Automaton sync failed: {cloudSaveError}
+            </p>
+          )}
           {currentTab === 'dashboard' && (
             <DashboardView
               onNavigate={setCurrentTab}
@@ -266,8 +347,9 @@ export function App() {
               machine={currentMachine}
               onChangeMachine={updated => {
                 setCurrentMachine(updated);
-                saveAutomaton(updated);
+                handleSaveAutomaton(updated);
               }}
+              onSaveMachine={handleExplicitSaveAutomaton}
               isAdvancedMode={preferences.mode === 'advanced'}
             />
           )}
@@ -283,7 +365,7 @@ export function App() {
             <GeneratorView
               onLoadIntoBuilder={m => {
                 setCurrentMachine(m);
-                saveAutomaton(m);
+                handleSaveAutomaton(m);
               }}
               onNavigate={setCurrentTab}
             />
@@ -294,7 +376,7 @@ export function App() {
               currentMachine={currentMachine}
               onLoadIntoBuilder={m => {
                 setCurrentMachine(m);
-                saveAutomaton(m);
+                handleSaveAutomaton(m);
               }}
               onNavigate={setCurrentTab}
             />
@@ -305,7 +387,7 @@ export function App() {
               currentMachine={currentMachine}
               onLoadIntoBuilder={m => {
                 setCurrentMachine(m);
-                saveAutomaton(m);
+                handleSaveAutomaton(m);
               }}
               onNavigate={setCurrentTab}
             />
@@ -316,7 +398,7 @@ export function App() {
               currentMachine={currentMachine}
               onLoadIntoBuilder={m => {
                 setCurrentMachine(m);
-                saveAutomaton(m);
+                handleSaveAutomaton(m);
               }}
               onNavigate={setCurrentTab}
             />
@@ -336,6 +418,7 @@ export function App() {
             <BuilderView
               machine={currentMachine}
               onChangeMachine={setCurrentMachine}
+              onSaveMachine={handleExplicitSaveAutomaton}
               isAdvancedMode={preferences.mode === 'advanced'}
             />
           )}
@@ -348,6 +431,7 @@ export function App() {
             <PracticeChallengeView
               onChallengeSolved={handleChallengeSolved}
               solvedChallengeIds={userStats.challengesSolved}
+              onResetProgress={handleResetChallenges}
             />
           )}
 

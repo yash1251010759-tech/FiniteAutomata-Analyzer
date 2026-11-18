@@ -37,14 +37,27 @@ export interface QuizQuestion {
 
 export interface ChallengeProblem {
   id: string;
+  category:
+    | 'DFA design'
+    | 'NFA design'
+    | 'Regular expressions'
+    | 'Context-free grammars'
+    | 'Pushdown automata'
+    | 'Turing machines'
+    | 'Conversions'
+    | 'Minimization';
   title: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   description: string;
   alphabet: string[];
-  targetType: 'DFA' | 'NFA' | 'MOORE' | 'MEALY' | 'PDA' | 'TM';
+  targetType: 'DFA' | 'NFA' | 'MOORE' | 'MEALY' | 'PDA' | 'TM' | 'REGEX' | 'CFG';
+  points: number;
   hints: string[];
   testCases: { input: string; expected: boolean; description?: string }[];
-  starterMachine?: any;
+  solution: { accepts: string[]; rejects: string[] };
+  referenceSolution?: unknown;
+  sourceMachine?: unknown;
+  starterMachine?: unknown;
   explanation: string;
 }
 

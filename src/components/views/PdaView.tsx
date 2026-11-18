@@ -16,59 +16,9 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-const EXTENDED_SAMPLE_PDAS: PDADefinition[] = [
-  ...samplePDAs,
-  {
-    id: 'pda-wcwR',
-    name: 'PDA: Palindromes with Center Marker (w c w^R)',
-    description: 'Pushes symbols before marker "c" onto stack; pops and verifies matching symbols in reverse after "c".',
-    states: [
-      { id: 'q0', label: 'q0', x: 100, y: 150, isStart: true },
-      { id: 'q1', label: 'q1', x: 260, y: 150 },
-      { id: 'q2', label: 'q2', x: 420, y: 150, isFinal: true },
-    ],
-    inputAlphabet: ['a', 'b', 'c'],
-    stackAlphabet: ['Z0', 'A', 'B'],
-    startStateId: 'q0',
-    startStackSymbol: 'Z0',
-    finalStateIds: ['q2'],
-    acceptMode: 'FINAL_STATE',
-    transitions: [
-      { id: 't1', from: 'q0', to: 'q0', inputSymbol: 'a', popSymbol: 'ε', pushSymbols: ['A'] },
-      { id: 't2', from: 'q0', to: 'q0', inputSymbol: 'b', popSymbol: 'ε', pushSymbols: ['B'] },
-      { id: 't3', from: 'q0', to: 'q1', inputSymbol: 'c', popSymbol: 'ε', pushSymbols: ['ε'] },
-      { id: 't4', from: 'q1', to: 'q1', inputSymbol: 'a', popSymbol: 'A', pushSymbols: ['ε'] },
-      { id: 't5', from: 'q1', to: 'q1', inputSymbol: 'b', popSymbol: 'B', pushSymbols: ['ε'] },
-      { id: 't6', from: 'q1', to: 'q2', inputSymbol: 'ε', popSymbol: 'Z0', pushSymbols: ['Z0'] },
-    ],
-  },
-  {
-    id: 'pda-anb2n',
-    name: 'PDA: {a^n b^{2n} | n ≥ 1}',
-    description: 'For every "a" read, pushes TWO markers onto stack; pops one marker for each "b" read.',
-    states: [
-      { id: 'q0', label: 'q0', x: 100, y: 150, isStart: true },
-      { id: 'q1', label: 'q1', x: 260, y: 150 },
-      { id: 'q2', label: 'q2', x: 420, y: 150, isFinal: true },
-    ],
-    inputAlphabet: ['a', 'b'],
-    stackAlphabet: ['Z0', 'X'],
-    startStateId: 'q0',
-    startStackSymbol: 'Z0',
-    finalStateIds: ['q2'],
-    acceptMode: 'FINAL_STATE',
-    transitions: [
-      { id: 't1', from: 'q0', to: 'q0', inputSymbol: 'a', popSymbol: 'ε', pushSymbols: ['X', 'X'] },
-      { id: 't2', from: 'q0', to: 'q1', inputSymbol: 'b', popSymbol: 'X', pushSymbols: ['ε'] },
-      { id: 't3', from: 'q1', to: 'q1', inputSymbol: 'b', popSymbol: 'X', pushSymbols: ['ε'] },
-      { id: 't4', from: 'q1', to: 'q2', inputSymbol: 'ε', popSymbol: 'Z0', pushSymbols: ['Z0'] },
-    ],
-  },
-];
-
 export const PdaView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'PRESETS' | 'CUSTOM_BUILDER'>('PRESETS');
-  const [selectedPda, setSelectedPda] = useState<PDADefinition>(EXTENDED_SAMPLE_PDAS[0]);
+  const [selectedPda, setSelectedPda] = useState<PDADefinition>(samplePDAs[0]);
   const [customPda, setCustomPda] = useState<PDADefinition>({
     id: 'custom-pda',
     name: 'My Custom Pushdown Automaton',
@@ -96,7 +46,7 @@ export const PdaView: React.FC = () => {
 
   const [inputString, setInputString] = useState<string>('0011');
   const [simResult, setSimResult] = useState<PDASimulationResult>(() =>
-    simulatePDA(EXTENDED_SAMPLE_PDAS[0], '0011')
+    simulatePDA(samplePDAs[0], '0011')
   );
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -230,20 +180,23 @@ export const PdaView: React.FC = () => {
               <select
                 value={selectedPda.id}
                 onChange={e => {
-                  const found = EXTENDED_SAMPLE_PDAS.find(p => p.id === e.target.value);
+                  const found = samplePDAs.find(p => p.id === e.target.value);
                   if (found) {
                     setSelectedPda(found);
                     let def = '0011';
                     if (found.id.includes('paren')) def = '((()))';
+                    if (found.id.includes('equal')) def = '0110';
+                    if (found.id === 'pda-palindrome') def = 'aabaa';
+                    if (found.id.includes('even-palindrome')) def = 'abba';
                     if (found.id.includes('wcwR')) def = 'abcba';
-                    if (found.id.includes('anb2n')) def = 'abbbb';
+                    if (found.id.includes('anb2n')) def = 'abb';
                     setInputString(def);
                     handleRunSim(def, found);
                   }
                 }}
                 className="px-3 py-1.5 bg-slate-950 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl focus:outline-none focus:border-emerald-500 cursor-pointer shadow-sm"
               >
-                {EXTENDED_SAMPLE_PDAS.map(p => (
+                {samplePDAs.map(p => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
@@ -336,7 +289,10 @@ export const PdaView: React.FC = () => {
               <select
                 value={customPda.acceptMode}
                 onChange={e => {
-                  const updated = { ...customPda, acceptMode: e.target.value as any };
+                  const updated = {
+                    ...customPda,
+                    acceptMode: e.target.value as PDADefinition['acceptMode'],
+                  };
                   setCustomPda(updated);
                   handleRunSim(inputString, updated);
                 }}
@@ -499,7 +455,7 @@ export const PdaView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Push:</span>
+                <span className="text-slate-500 text-[10px]">Push (top first):</span>
                 <input
                   type="text"
                   value={newTransPush}
@@ -546,6 +502,12 @@ export const PdaView: React.FC = () => {
           <span className="text-slate-500 text-[11px] font-sans">Suggested Tests:</span>
           {(activePda.id.includes('paren')
             ? ['()', '(())', '()()', '((()))', '(()']
+            : activePda.id.includes('equal')
+            ? ['01', '10', '0011', '0110', '001']
+            : activePda.id === 'pda-palindrome'
+            ? ['', 'a', 'aa', 'aba', 'abba', 'ab']
+            : activePda.id.includes('even-palindrome')
+            ? ['', 'aa', 'abba', 'baab', 'a', 'aba']
             : activePda.id.includes('wcwR')
             ? ['aca', 'abcba', 'abbcbba', 'abb', 'abacaba']
             : activePda.id.includes('anb2n')
@@ -553,14 +515,14 @@ export const PdaView: React.FC = () => {
             : ['01', '0011', '000111', '011', '001', '10']
           ).map(sample => (
             <button
-              key={sample}
+              key={sample || 'ε'}
               onClick={() => {
                 setInputString(sample);
                 handleRunSim(sample);
               }}
               className="px-2.5 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition-colors"
             >
-              {sample}
+              {sample || 'ε'}
             </button>
           ))}
         </div>
@@ -586,7 +548,7 @@ export const PdaView: React.FC = () => {
           {currentStep && (
             <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 text-xs font-mono text-center space-y-1">
               <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-sans">
-                Configuration (State, Remaining Input, Stack)
+                Configuration (State, Remaining Input, Stack bottom-to-top)
               </span>
               <div className="text-sm font-bold text-emerald-400">
                 ({currentStep.stateId}, "{currentStep.remainingInput || 'ε'}", [

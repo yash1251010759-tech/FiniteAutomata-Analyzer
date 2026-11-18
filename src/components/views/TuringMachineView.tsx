@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { sampleTuringMachines, simulateTuringMachine, TMSimulationResult } from '../../algorithms/turingMachine';
+import {
+  sampleTuringMachines,
+  simulateTuringMachine,
+  TMSimulationResult,
+  validateTuringMachine,
+} from '../../algorithms/turingMachine';
 import { TMDefinition, TMStep, TMTransition, StateNode } from '../../types/automata';
 import {
   Binary,
@@ -20,49 +25,9 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
-const EXTENDED_SAMPLE_TMS: TMDefinition[] = [
-  ...sampleTuringMachines,
-  {
-    id: 'tm-anbncn',
-    name: 'TM: Language {a^n b^n c^n | n ≥ 1}',
-    description: 'Crosses off an "a" with X, moves right to cross a matching "b" with Y, moves right to cross a matching "c" with Z, and returns to repeat.',
-    states: [
-      { id: 'q0', label: 'q0', x: 100, y: 150, isStart: true, description: 'Find next a' },
-      { id: 'q1', label: 'q1', x: 260, y: 150, description: 'Find matching b' },
-      { id: 'q2', label: 'q2', x: 420, y: 150, description: 'Find matching c' },
-      { id: 'q3', label: 'q3', x: 580, y: 150, description: 'Rewind to start' },
-      { id: 'q4', label: 'q4', x: 740, y: 150, description: 'Verify all crossed' },
-      { id: 'q_acc', label: 'q_acc', x: 900, y: 150, isFinal: true, description: 'Accept' },
-    ],
-    inputAlphabet: ['a', 'b', 'c'],
-    tapeAlphabet: ['a', 'b', 'c', 'X', 'Y', 'Z', 'B'],
-    blankSymbol: 'B',
-    startStateId: 'q0',
-    acceptStateId: 'q_acc',
-    transitions: [
-      { id: 'tm1', from: 'q0', to: 'q1', readSymbol: 'a', writeSymbol: 'X', direction: 'R' },
-      { id: 'tm2', from: 'q0', to: 'q4', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm3', from: 'q1', to: 'q1', readSymbol: 'a', writeSymbol: 'a', direction: 'R' },
-      { id: 'tm4', from: 'q1', to: 'q1', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm5', from: 'q1', to: 'q2', readSymbol: 'b', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm6', from: 'q2', to: 'q2', readSymbol: 'b', writeSymbol: 'b', direction: 'R' },
-      { id: 'tm7', from: 'q2', to: 'q2', readSymbol: 'Z', writeSymbol: 'Z', direction: 'R' },
-      { id: 'tm8', from: 'q2', to: 'q3', readSymbol: 'c', writeSymbol: 'Z', direction: 'L' },
-      { id: 'tm9', from: 'q3', to: 'q3', readSymbol: 'Z', writeSymbol: 'Z', direction: 'L' },
-      { id: 'tm10', from: 'q3', to: 'q3', readSymbol: 'b', writeSymbol: 'b', direction: 'L' },
-      { id: 'tm11', from: 'q3', to: 'q3', readSymbol: 'Y', writeSymbol: 'Y', direction: 'L' },
-      { id: 'tm12', from: 'q3', to: 'q3', readSymbol: 'a', writeSymbol: 'a', direction: 'L' },
-      { id: 'tm13', from: 'q3', to: 'q0', readSymbol: 'X', writeSymbol: 'X', direction: 'R' },
-      { id: 'tm14', from: 'q4', to: 'q4', readSymbol: 'Y', writeSymbol: 'Y', direction: 'R' },
-      { id: 'tm15', from: 'q4', to: 'q4', readSymbol: 'Z', writeSymbol: 'Z', direction: 'R' },
-      { id: 'tm16', from: 'q4', to: 'q_acc', readSymbol: 'B', writeSymbol: 'B', direction: 'S' },
-    ],
-  },
-];
-
 export const TuringMachineView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'PRESETS' | 'CUSTOM_BUILDER'>('PRESETS');
-  const [selectedTm, setSelectedTm] = useState<TMDefinition>(EXTENDED_SAMPLE_TMS[0]);
+  const [selectedTm, setSelectedTm] = useState<TMDefinition>(sampleTuringMachines[0]);
   const [customTm, setCustomTm] = useState<TMDefinition>({
     id: 'custom-tm',
     name: 'My Custom Turing Machine',
@@ -73,22 +38,22 @@ export const TuringMachineView: React.FC = () => {
       { id: 'q_accept', label: 'q_accept', x: 420, y: 150, isFinal: true },
     ],
     inputAlphabet: ['0', '1'],
-    tapeAlphabet: ['0', '1', 'X', 'B'],
-    blankSymbol: 'B',
+    tapeAlphabet: ['0', '1', 'X', '_'],
+    blankSymbol: '_',
     startStateId: 'q0',
     acceptStateId: 'q_accept',
     transitions: [
       { id: 't1', from: 'q0', to: 'q1', readSymbol: '0', writeSymbol: 'X', direction: 'R' },
-      { id: 't2', from: 'q1', to: 'q_accept', readSymbol: 'B', writeSymbol: 'B', direction: 'S' },
+      { id: 't2', from: 'q1', to: 'q_accept', readSymbol: '_', writeSymbol: '_', direction: 'S' },
     ],
   });
 
   const activeTm = activeTab === 'PRESETS' ? selectedTm : customTm;
 
   const [inputTape, setInputTape] = useState<string>('1011');
-  const [maxSteps, setMaxSteps] = useState<number>(500);
+  const [maxSteps, setMaxSteps] = useState<number>(10_000);
   const [simResult, setSimResult] = useState<TMSimulationResult>(() =>
-    simulateTuringMachine(EXTENDED_SAMPLE_TMS[0], '1011', 500)
+    simulateTuringMachine(sampleTuringMachines[0], '1011')
   );
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -100,9 +65,11 @@ export const TuringMachineView: React.FC = () => {
   const [newTransWrite, setNewTransWrite] = useState<string>('0');
   const [newTransDir, setNewTransDir] = useState<'L' | 'R' | 'S'>('R');
   const [newTransTo, setNewTransTo] = useState<string>('q0');
+  const [transitionWarning, setTransitionWarning] = useState<string>('');
 
   const totalSteps = simResult?.steps.length || 0;
   const currentStep: TMStep | undefined = simResult?.steps[currentStepIdx];
+  const customValidation = validateTuringMachine(customTm);
 
   // Auto-play loop
   useEffect(() => {
@@ -122,7 +89,7 @@ export const TuringMachineView: React.FC = () => {
   const handleRunSim = (str?: string, tmToUse?: TMDefinition, limit?: number) => {
     const s = str !== undefined ? str : inputTape;
     const m = tmToUse || activeTm;
-    const l = limit || maxSteps;
+    const l = limit ?? maxSteps;
     const res = simulateTuringMachine(m, s, l);
     setSimResult(res);
     setCurrentStepIdx(0);
@@ -130,12 +97,21 @@ export const TuringMachineView: React.FC = () => {
   };
 
   const handleAddTransition = () => {
+    const readSymbol = newTransRead.trim() || customTm.blankSymbol;
+    const duplicate = customTm.transitions.some(
+      transition => transition.from === newTransFrom && transition.readSymbol === readSymbol
+    );
+    if (duplicate) {
+      setTransitionWarning(`Transition (${newTransFrom}, ${readSymbol}) already exists; TMs must be deterministic.`);
+      return;
+    }
+    setTransitionWarning('');
     const newTrans: TMTransition = {
       id: `t_${Date.now()}`,
       from: newTransFrom,
       to: newTransTo,
-      readSymbol: newTransRead.trim() || 'B',
-      writeSymbol: newTransWrite.trim() || 'B',
+      readSymbol,
+      writeSymbol: newTransWrite.trim() || customTm.blankSymbol,
       direction: newTransDir,
     };
 
@@ -210,19 +186,22 @@ export const TuringMachineView: React.FC = () => {
               <select
                 value={selectedTm.id}
                 onChange={e => {
-                  const found = EXTENDED_SAMPLE_TMS.find(m => m.id === e.target.value);
+                  const found = sampleTuringMachines.find(m => m.id === e.target.value);
                   if (found) {
                     setSelectedTm(found);
                     let def = '1011';
                     if (found.id.includes('0n1n')) def = '0011';
                     if (found.id.includes('anbncn')) def = 'aabbcc';
+                    if (found.id.includes('palindrome')) def = 'abba';
+                    if (found.id.includes('ww')) def = 'ab#ab';
+                    if (found.id.includes('even-ones')) def = '1010';
                     setInputTape(def);
                     handleRunSim(def, found);
                   }
                 }}
                 className="px-3 py-1.5 bg-slate-950 border border-slate-700 text-slate-200 text-xs font-semibold rounded-xl focus:outline-none focus:border-amber-500 cursor-pointer shadow-sm"
               >
-                {EXTENDED_SAMPLE_TMS.map(m => (
+                {sampleTuringMachines.map(m => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
@@ -253,6 +232,14 @@ export const TuringMachineView: React.FC = () => {
               States: {customTm.states.map(s => s.id).join(', ')} | Blank: '{customTm.blankSymbol}'
             </span>
           </div>
+          {customValidation.errors.map((error, index) => (
+            <p key={`tm-error-${index}`} className="text-xs text-rose-300">
+              {error}
+            </p>
+          ))}
+          {transitionWarning && (
+            <p className="text-xs text-amber-300">{transitionWarning}</p>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs font-sans">
             {/* States */}
@@ -318,7 +305,7 @@ export const TuringMachineView: React.FC = () => {
                 type="text"
                 value={customTm.blankSymbol}
                 onChange={e => {
-                  const updated = { ...customTm, blankSymbol: e.target.value.trim() || 'B' };
+                  const updated = { ...customTm, blankSymbol: e.target.value.trim() || '_' };
                   setCustomTm(updated);
                   handleRunSim(inputTape, updated);
                 }}
@@ -374,10 +361,10 @@ export const TuringMachineView: React.FC = () => {
                 }}
                 className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-amber-300"
               >
-                <option value={200}>200 Steps</option>
                 <option value={500}>500 Steps</option>
                 <option value={1000}>1,000 Steps</option>
                 <option value={3000}>3,000 Steps</option>
+                <option value={10000}>10,000 Steps</option>
               </select>
             </div>
           </div>
@@ -448,7 +435,7 @@ export const TuringMachineView: React.FC = () => {
                   type="text"
                   value={newTransRead}
                   onChange={e => setNewTransRead(e.target.value)}
-                  placeholder="0, 1 or B"
+                  placeholder="0, 1 or _"
                   className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
                 />
               </div>
@@ -461,7 +448,7 @@ export const TuringMachineView: React.FC = () => {
                   type="text"
                   value={newTransWrite}
                   onChange={e => setNewTransWrite(e.target.value)}
-                  placeholder="0, 1 or B"
+                  placeholder="0, 1 or _"
                   className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
                 />
               </div>
@@ -470,7 +457,7 @@ export const TuringMachineView: React.FC = () => {
                 <span className="text-slate-500 text-[10px]">Move:</span>
                 <select
                   value={newTransDir}
-                  onChange={e => setNewTransDir(e.target.value as any)}
+                  onChange={e => setNewTransDir(e.target.value as TMTransition['direction'])}
                   className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
                 >
                   <option value="R">R (Right)</option>
@@ -530,18 +517,24 @@ export const TuringMachineView: React.FC = () => {
           {(activeTm.id.includes('anbncn')
             ? ['abc', 'aabbcc', 'aaabbbccc', 'ab', 'aabbc', 'abcde']
             : activeTm.id.includes('binary-inc')
-            ? ['0', '1', '101', '1011', '1111', '10011']
+            ? ['0', '1', '101', '111', '1011', '10011']
+            : activeTm.id.includes('palindrome')
+            ? ['', 'a', 'aa', 'aba', 'abba', 'abb']
+            : activeTm.id.includes('ww')
+            ? ['#', 'a#a', 'ab#ab', 'abb#abb', 'a#b']
+            : activeTm.id.includes('even-ones')
+            ? ['', '0', '11', '1010', '0110', '111']
             : ['01', '0011', '000111', '001', '011', '10']
           ).map(sample => (
             <button
-              key={sample}
+              key={sample || 'ε'}
               onClick={() => {
                 setInputTape(sample);
                 handleRunSim(sample);
               }}
               className="px-2.5 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition-colors"
             >
-              {sample}
+              {sample || 'ε'}
             </button>
           ))}
         </div>
@@ -686,8 +679,9 @@ export const TuringMachineView: React.FC = () => {
 
         {/* Current Step Description Box */}
         {currentStep && (
-          <div className="p-3 bg-slate-950 border border-amber-950/60 rounded-xl text-xs text-slate-300 font-mono">
-            {currentStep.actionDescription}
+          <div className="p-3 bg-slate-950 border border-amber-950/60 rounded-xl text-xs text-slate-300 font-mono space-y-1">
+            <p>{currentStep.actionDescription}</p>
+            <p className="text-amber-300">{simResult.reason}</p>
           </div>
         )}
       </div>
@@ -716,7 +710,11 @@ export const TuringMachineView: React.FC = () => {
                   <span className="px-2 py-0.5 bg-slate-800 text-slate-400 rounded text-[11px]">
                     Step {st.stepIndex}
                   </span>
-                  <span>{st.actionDescription}</span>
+                  <span>
+                    {st.stepIndex === 0
+                      ? st.actionDescription
+                      : `State ${st.stateId} · read '${st.readSymbol}' · wrote '${st.writtenSymbol}' · move ${st.direction}`}
+                  </span>
                 </div>
 
                 <span className="text-[11px] text-slate-500">

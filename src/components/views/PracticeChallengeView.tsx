@@ -6,13 +6,20 @@ import { AutomatonDefinition, StateNode, TransitionEdge } from '../../types/auto
 import { AutomataCanvas } from '../canvas/AutomataCanvas';
 import { TransitionTable } from '../simulation/TransitionTable';
 import { simulateAutomaton } from '../../algorithms/dfaSimulation';
+import { checkChallengeSolution } from '../../algorithms/challengeChecking';
+import {
+  challengeAward,
+  clearChallengeProgress,
+  emptyChallengeProgress,
+  loadChallengeProgress,
+  saveChallengeProgress,
+} from '../../algorithms/challengeProgress';
 import {
   Trophy,
   CheckCircle2,
   XCircle,
   Lightbulb,
   Play,
-  ArrowRight,
   RotateCcw,
   RotateCw,
   Plus,
@@ -26,12 +33,12 @@ import {
   RefreshCw,
   PlaySquare,
   AlertTriangle,
-  Info,
 } from 'lucide-react';
 
 interface PracticeChallengeViewProps {
   onChallengeSolved: (challengeId: string) => void;
   solvedChallengeIds: string[];
+  onResetProgress?: () => void;
 }
 
 type TabType = 'builder' | 'tests' | 'simulator' | 'table' | 'hints';
@@ -39,10 +46,35 @@ type TabType = 'builder' | 'tests' | 'simulator' | 'table' | 'hints';
 export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
   onChallengeSolved,
   solvedChallengeIds,
+  onResetProgress,
 }) => {
   const [selectedChallenge, setSelectedChallenge] = useState<ChallengeProblem>(
     challengeProblems[0]
   );
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [difficultyFilter, setDifficultyFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [searchText, setSearchText] = useState('');
+  const [solutionInput, setSolutionInput] = useState('');
+  const [savedProgress, setSavedProgress] = useState(loadChallengeProgress);
+  const { score: challengeScore, attempts: attemptCounts, hints: hintCounts, revealedSolutions } = savedProgress;
+  useEffect(() => {
+    saveChallengeProgress(savedProgress);
+  }, [savedProgress]);
+  const setAttemptCounts = (update: (previous: Record<string, number>) => Record<string, number>) =>
+    setSavedProgress(previous => ({ ...previous, attempts: update(previous.attempts) }));
+  const setHintCounts = (update: (previous: Record<string, number>) => Record<string, number>) =>
+    setSavedProgress(previous => ({ ...previous, hints: update(previous.hints) }));
+
+  const filteredChallenges = useMemo(() => challengeProblems.filter(challenge =>
+    (categoryFilter === 'All' || challenge.category === categoryFilter) &&
+    (difficultyFilter === 'All' || challenge.difficulty === difficultyFilter) &&
+    (statusFilter === 'All' ||
+      (statusFilter === 'Solved'
+        ? solvedChallengeIds.includes(challenge.id)
+        : !solvedChallengeIds.includes(challenge.id))) &&
+    `${challenge.title} ${challenge.description}`.toLowerCase().includes(searchText.toLowerCase())
+  ), [categoryFilter, difficultyFilter, statusFilter, searchText, solvedChallengeIds]);
 
   // Helper to generate starter machine for challenge
   const createStarterMachine = (c: ChallengeProblem): AutomatonDefinition => {
@@ -211,6 +243,8 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
     setHistoryIndex(0);
     setSelectedState(starter.states[0] || null);
     setLiveTestResult(null);
+    setSolutionInput('');
+    setActiveTab(c.targetType === 'DFA' || c.targetType === 'NFA' ? 'builder' : 'tests');
   };
 
   // Set default connection dropdown states when machine changes
@@ -395,36 +429,36 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
 
   // Live test case evaluations
   const testResults = useMemo(() => {
-    let passedCount = 0;
-    const details = selectedChallenge.testCases.map(tc => {
-      const res = simulateAutomaton(machine, tc.input);
-      const passed = res.accepted === tc.expected;
-      if (passed) passedCount++;
-      return {
-        input: tc.input,
-        displayInput: tc.input === '' ? 'ε (empty string)' : tc.input,
-        expected: tc.expected,
-        actual: res.accepted,
-        passed,
-        description: tc.description,
-        reason: res.detailedReason,
-      };
-    });
-
-    const allPassed = passedCount === selectedChallenge.testCases.length;
-    const firstFailed = details.find(d => !d.passed);
+    const answer = selectedChallenge.targetType === 'DFA' || selectedChallenge.targetType === 'NFA'
+      ? machine
+      : solutionInput;
+    const checked = checkChallengeSolution(selectedChallenge, answer, machine);
+    const passedCount = checked.results.filter(result => result.passed).length;
+    const details = checked.results.map((result, index) => ({
+      ...result,
+      displayInput: result.input === '' ? 'ε (empty string)' : result.input,
+      description: selectedChallenge.testCases[index]?.description,
+      reason: checked.error || `${result.actual ? 'Accepted' : 'Rejected'} by the supplied solution.`,
+    }));
 
     return {
       details,
       passedCount,
       totalCount: selectedChallenge.testCases.length,
-      allPassed,
-      failedCase: firstFailed,
+      allPassed: !checked.error && passedCount === selectedChallenge.testCases.length,
+      error: checked.error,
+      failedCase: details.find(detail => !detail.passed),
     };
-  }, [machine, selectedChallenge]);
+  }, [machine, selectedChallenge, solutionInput]);
 
   // Primary Check Solution trigger
   const handleCheckSolution = () => {
+    if (!testResults.allPassed) {
+      setAttemptCounts(previous => ({
+        ...previous,
+        [selectedChallenge.id]: (previous[selectedChallenge.id] || 0) + 1,
+      }));
+    }
     setActiveTab('tests');
     if (testResults.allPassed) {
       confetti({
@@ -432,8 +466,51 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
         spread: 80,
         origin: { y: 0.6 },
       });
+      if (!solvedChallengeIds.includes(selectedChallenge.id) &&
+          !revealedSolutions.includes(selectedChallenge.id)) {
+        const earned = challengeAward(
+          selectedChallenge,
+          hintCounts[selectedChallenge.id] || 0,
+          solvedChallengeIds.includes(selectedChallenge.id),
+          revealedSolutions.includes(selectedChallenge.id)
+        );
+        setSavedProgress(previous => ({ ...previous, score: previous.score + earned }));
+      }
       onChallengeSolved(selectedChallenge.id);
     }
+  };
+
+  const revealNextHint = () => {
+    setHintCounts(previous => ({
+      ...previous,
+      [selectedChallenge.id]: Math.min(selectedChallenge.hints.length, (previous[selectedChallenge.id] || 0) + 1),
+    }));
+  };
+
+  const revealSolution = () => {
+    if ((attemptCounts[selectedChallenge.id] || 0) < 3 || selectedChallenge.referenceSolution === undefined) return;
+    setSavedProgress(previous => ({
+      ...previous,
+      revealedSolutions: previous.revealedSolutions.includes(selectedChallenge.id)
+        ? previous.revealedSolutions
+        : [...previous.revealedSolutions, selectedChallenge.id],
+    }));
+    if (selectedChallenge.referenceSolution &&
+        typeof selectedChallenge.referenceSolution === 'object' &&
+        'states' in selectedChallenge.referenceSolution) {
+      updateMachineWithHistory(selectedChallenge.referenceSolution as AutomatonDefinition);
+    } else {
+      setSolutionInput(typeof selectedChallenge.referenceSolution === 'string'
+        ? selectedChallenge.referenceSolution
+        : JSON.stringify(selectedChallenge.referenceSolution, null, 2));
+    }
+  };
+
+  const resetChallengeProgress = () => {
+    if (!confirm('Reset all challenge progress, hints, attempts, and score?')) return;
+    setSavedProgress(emptyChallengeProgress());
+    clearChallengeProgress();
+    onResetProgress?.();
   };
 
   // Run live interactive test on custom string
@@ -443,6 +520,8 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
   };
 
   const isSolved = solvedChallengeIds.includes(selectedChallenge.id);
+  const supportsCanvas = selectedChallenge.targetType === 'DFA' || selectedChallenge.targetType === 'NFA';
+  const solvedCount = challengeProblems.filter(challenge => solvedChallengeIds.includes(challenge.id)).length;
 
   return (
     <div className="space-y-6 pb-16 animate-in fade-in">
@@ -463,7 +542,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
                 )}
               </h2>
               <p className="text-xs sm:text-sm text-slate-400">
-                Design and verify finite automata that satisfy rigorous language specifications
+                Design and verify machines and language descriptions against behavioral test suites
               </p>
             </div>
           </div>
@@ -480,7 +559,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
             }}
             className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-slate-950 border border-slate-700 text-slate-100 text-xs font-bold rounded-2xl focus:outline-none focus:border-amber-500 cursor-pointer shadow-md"
           >
-            {challengeProblems.map(c => (
+            {filteredChallenges.map(c => (
               <option key={c.id} value={c.id}>
                 {c.title} ({c.difficulty}) {solvedChallengeIds.includes(c.id) ? '✓' : ''}
               </option>
@@ -498,11 +577,87 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
         </div>
       </div>
 
+      <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-3 shadow-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+          <input
+            value={searchText}
+            onChange={event => setSearchText(event.target.value)}
+            placeholder="Search challenges"
+            className="px-3 py-2 bg-slate-950 border border-slate-700 text-slate-100 text-xs rounded-xl"
+          />
+          <select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)} className="px-3 py-2 bg-slate-950 border border-slate-700 text-slate-100 text-xs rounded-xl">
+            {['All', ...new Set(challengeProblems.map(challenge => challenge.category))].map(category => <option key={category}>{category}</option>)}
+          </select>
+          <select value={difficultyFilter} onChange={event => setDifficultyFilter(event.target.value)} className="px-3 py-2 bg-slate-950 border border-slate-700 text-slate-100 text-xs rounded-xl">
+            {['All', 'Easy', 'Medium', 'Hard'].map(difficulty => <option key={difficulty}>{difficulty}</option>)}
+          </select>
+          <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="px-3 py-2 bg-slate-950 border border-slate-700 text-slate-100 text-xs rounded-xl">
+            {['All', 'Solved', 'Unsolved'].map(status => <option key={status}>{status}</option>)}
+          </select>
+          <div className="flex gap-1">
+            <button onClick={() => handleSelectChallenge(filteredChallenges[Math.floor(Math.random() * filteredChallenges.length)] || selectedChallenge)} className="flex-1 px-2 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold rounded-xl">Random</button>
+            <button onClick={() => {
+              const dateKey = new Date().toISOString().slice(0, 10);
+              const hash = [...dateKey].reduce((sum, char) => sum + char.charCodeAt(0), 0);
+              handleSelectChallenge(challengeProblems[hash % challengeProblems.length]);
+            }} className="flex-1 px-2 py-2 bg-cyan-700 hover:bg-cyan-600 text-white text-[11px] font-bold rounded-xl">Daily</button>
+            <button onClick={() => {
+              const index = challengeProblems.findIndex(challenge => challenge.id === selectedChallenge.id);
+              handleSelectChallenge(challengeProblems[(index + 1) % challengeProblems.length]);
+            }} className="flex-1 px-2 py-2 bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold rounded-xl">Next</button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+          <span>Score: <strong className="text-amber-300">{challengeScore}</strong></span>
+          <span>Solved: <strong className="text-emerald-300">{solvedCount} / {challengeProblems.length}</strong> · {challengeProblems.length / 8} per category</span>
+          <button onClick={resetChallengeProgress} className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 hover:bg-rose-500/20">Reset progress</button>
+        </div>
+        <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-indigo-500 to-emerald-400" style={{ width: `${solvedCount / challengeProblems.length * 100}%` }} />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[...new Set(challengeProblems.map(challenge => challenge.category))].map(category => {
+            const categoryChallenges = challengeProblems.filter(challenge => challenge.category === category);
+            const solvedCount = categoryChallenges.filter(challenge => solvedChallengeIds.includes(challenge.id)).length;
+            return (
+              <span key={category} className="px-2 py-1 rounded-lg bg-slate-950 text-[10px] text-slate-400">
+                {category}: {solvedCount}/{categoryChallenges.length}
+              </span>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
+          {filteredChallenges.map(challenge => (
+            <button
+              key={challenge.id}
+              onClick={() => handleSelectChallenge(challenge)}
+              className={`p-3 rounded-xl border text-left transition-colors ${
+                selectedChallenge.id === challenge.id
+                  ? 'bg-indigo-600/20 border-indigo-400/60'
+                  : 'bg-slate-950 border-slate-800 hover:border-slate-600'
+              }`}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-indigo-300">{challenge.category}</span>
+                {solvedChallengeIds.includes(challenge.id) && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+              </span>
+              <span className="block mt-1 text-xs font-bold text-slate-100">{challenge.title}</span>
+              <span className="flex justify-between mt-2 text-[10px] text-slate-400">
+                <span>{challenge.difficulty}</span><span>{challenge.points} pts</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Challenge Spec & Hints Banner */}
       <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3.5 backdrop-blur-md">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5">
+              <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-lg border bg-indigo-500/20 text-indigo-300 border-indigo-500/30">
+                {selectedChallenge.category}
+              </span>
               <span
                 className={`px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-lg border ${
                   selectedChallenge.difficulty === 'Easy'
@@ -566,7 +721,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
           <span className="text-slate-400 font-bold flex items-center gap-1 text-[11px]">
             <Lightbulb className="w-3.5 h-3.5 text-amber-400" /> Hints:
           </span>
-          {selectedChallenge.hints.map((h, i) => (
+          {selectedChallenge.hints.slice(0, hintCounts[selectedChallenge.id] || 0).map((h, i) => (
             <span
               key={i}
               className="px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-xl text-slate-300 text-[11px]"
@@ -574,6 +729,17 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
               • {h}
             </span>
           ))}
+          {(hintCounts[selectedChallenge.id] || 0) < selectedChallenge.hints.length && (
+            <button onClick={revealNextHint} className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-[11px]">
+              Reveal hint (-3 points)
+            </button>
+          )}
+          <span className="text-slate-500">Potential points: {Math.max(0, selectedChallenge.points - (hintCounts[selectedChallenge.id] || 0) * 3)}</span>
+          {(attemptCounts[selectedChallenge.id] || 0) >= 3 && (
+            <button onClick={revealSolution} className="px-2.5 py-1 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-[11px]">
+              Show solution
+            </button>
+          )}
         </div>
       </div>
 
@@ -581,7 +747,47 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left / Center: Interactive Graph Canvas Area (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
+          {Boolean(selectedChallenge.sourceMachine) && (
+            <details className="p-4 bg-slate-900 border border-indigo-500/30 rounded-2xl text-xs text-slate-300">
+              <summary className="cursor-pointer font-bold text-indigo-300">
+                {selectedChallenge.category === 'Conversions' ? 'Source NFA' : 'Original DFA'} — view source definition
+              </summary>
+              <pre className="mt-2 max-h-56 overflow-auto p-3 bg-slate-950 rounded-xl">{String(JSON.stringify(selectedChallenge.sourceMachine, null, 2))}</pre>
+            </details>
+          )}
+          {['REGEX', 'CFG', 'PDA', 'TM'].includes(selectedChallenge.targetType) && (
+            <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-3xl space-y-3">
+              <label className="block text-xs font-bold text-slate-200">
+                {selectedChallenge.targetType === 'REGEX'
+                  ? 'Regular expression'
+                  : `${selectedChallenge.targetType} solution (JSON definition)`}
+              </label>
+              <textarea
+                value={solutionInput}
+                onChange={event => setSolutionInput(event.target.value)}
+                rows={selectedChallenge.targetType === 'REGEX' ? 2 : 10}
+                spellCheck={false}
+                placeholder={selectedChallenge.targetType === 'REGEX'
+                  ? 'Enter a regular expression, e.g. (0|1)*01'
+                  : `Paste a ${selectedChallenge.targetType} definition as JSON.`}
+                className="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 font-mono text-xs focus:outline-none focus:border-indigo-500"
+              />
+              {selectedChallenge.category === 'Conversions' && Boolean(selectedChallenge.sourceMachine) && (
+                <details className="text-xs text-slate-400">
+                  <summary className="cursor-pointer">Source automaton JSON</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto p-3 bg-slate-950 rounded-xl">{String(JSON.stringify(selectedChallenge.sourceMachine, null, 2))}</pre>
+                </details>
+              )}
+              {selectedChallenge.category === 'Minimization' && Boolean(selectedChallenge.sourceMachine) && (
+                <details className="text-xs text-slate-400">
+                  <summary className="cursor-pointer">Source DFA JSON</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto p-3 bg-slate-950 rounded-xl">{String(JSON.stringify(selectedChallenge.sourceMachine, null, 2))}</pre>
+                </details>
+              )}
+            </div>
+          )}
           {/* Canvas Card */}
+          {['DFA', 'NFA'].includes(selectedChallenge.targetType) && (
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 shadow-xl backdrop-blur-md space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 px-1">
               <div className="flex items-center gap-2">
@@ -664,12 +870,14 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
               </button>
             </div>
           </div>
+          )}
         </div>
 
         {/* Right Inspector & Multi-Tool Studio (4 cols) */}
         <div className="lg:col-span-4 bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 backdrop-blur-md">
           {/* Studio Navigation Tabs */}
           <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-2xl overflow-x-auto text-xs">
+            {supportsCanvas && (
             <button
               onClick={() => setActiveTab('builder')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl font-bold transition-all ${
@@ -681,6 +889,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
               <Sliders className="w-3.5 h-3.5" />
               <span>Builder</span>
             </button>
+            )}
 
             <button
               onClick={() => setActiveTab('tests')}
@@ -703,7 +912,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
               </span>
             </button>
 
-            <button
+            {supportsCanvas && <button
               onClick={() => setActiveTab('simulator')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl font-bold transition-all ${
                 activeTab === 'simulator'
@@ -713,9 +922,9 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
             >
               <PlaySquare className="w-3.5 h-3.5" />
               <span>Live Test</span>
-            </button>
+            </button>}
 
-            <button
+            {supportsCanvas && <button
               onClick={() => setActiveTab('table')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl font-bold transition-all ${
                 activeTab === 'table'
@@ -725,7 +934,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
             >
               <Table className="w-3.5 h-3.5" />
               <span>δ Table</span>
-            </button>
+            </button>}
           </div>
 
           {/* TAB 1: BUILDER & STATE / TRANSITION CONTROLS */}
@@ -1046,6 +1255,7 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
                     ? 'Great work! Your finite automaton accepted every positive string and rejected all counterexamples.'
                     : 'Inspect individual test strings below to identify missing transitions or incorrect final states.'}
                 </p>
+                {testResults.error && <p className="text-[11px] text-rose-300">{testResults.error}</p>}
               </div>
 
               {/* Counterexample Highlight Card */}
@@ -1102,6 +1312,10 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
                           }`}
                         >
                           {tc.expected ? 'ACCEPT' : 'REJECT'}
+                        </span>
+                        <span className="text-slate-500 font-sans">Actual:</span>
+                        <span className={`font-bold ${tc.actual ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {tc.actual ? 'ACCEPT' : 'REJECT'}
                         </span>
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1245,12 +1459,22 @@ export const PracticeChallengeView: React.FC<PracticeChallengeViewProps> = ({
                   <span>Hints & Solution Strategies</span>
                 </span>
                 <div className="space-y-2 text-slate-300">
-                  {selectedChallenge.hints.map((h, i) => (
+                  {selectedChallenge.hints.slice(0, hintCounts[selectedChallenge.id] || 0).map((h, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <span className="text-amber-400 font-bold">•</span>
                       <span>{h}</span>
                     </div>
                   ))}
+                  {(hintCounts[selectedChallenge.id] || 0) < selectedChallenge.hints.length && (
+                    <button onClick={revealNextHint} className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300">
+                      Reveal next hint (-3 points)
+                    </button>
+                  )}
+                  {(attemptCounts[selectedChallenge.id] || 0) >= 3 && (
+                    <button onClick={revealSolution} className="ml-2 px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300">
+                      Show solution
+                    </button>
+                  )}
                 </div>
               </div>
 
