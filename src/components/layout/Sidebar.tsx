@@ -7,7 +7,6 @@ import {
   Sparkles,
   GitFork,
   Minimize2,
-  Regex,
   Workflow,
   Layers,
   Binary,
@@ -99,7 +98,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'conversion', label: 'Conversion Lab', icon: GitFork },
         { id: 'minimization', label: 'Minimization Lab', icon: Minimize2 },
-        { id: 'regex', label: 'Regex Lab', icon: Regex },
         { id: 'cfg', label: 'CFG Visualizer', icon: Workflow },
         { id: 'pda', label: 'PDA Visualizer', icon: Layers },
         { id: 'turing', label: 'Turing Machine', icon: Binary },

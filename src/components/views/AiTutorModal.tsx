@@ -293,8 +293,9 @@ export const AiTutorModal: React.FC<AiTutorModalProps> = ({
           reply = await askGeminiTutor(query, messages, currentMachine, activeKey);
         } catch (apiErr: any) {
           console.warn('Gemini API call failed, falling back to built-in knowledge base:', apiErr);
-          // Fall back gracefully to built-in comprehensive response
-          reply = getFallbackTutorResponse(query, currentMachine);
+          const fallback = getFallbackTutorResponse(query, currentMachine);
+          const reason = apiErr instanceof Error ? apiErr.message : 'Unknown connection error';
+          reply = `${fallback}\n\n> Gemini connection failed: ${reason}. Showing the offline response.`;
         }
       } else {
         reply = getFallbackTutorResponse(query, currentMachine);
@@ -351,7 +352,7 @@ export const AiTutorModal: React.FC<AiTutorModalProps> = ({
                   {hasApiKey ? (
                     <span className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold bg-emerald-500/15 text-emerald-400 rounded-lg border border-emerald-500/30">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                      Gemini AI Active
+                      API Key Set
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-500/15 text-amber-300 rounded-lg border border-amber-500/30">
@@ -447,7 +448,7 @@ export const AiTutorModal: React.FC<AiTutorModalProps> = ({
                     <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse delay-200"></span>
                   </div>
                   <span className="text-xs text-cyan-300/90 font-medium">
-                    {hasApiKey ? 'Gemini AI is analyzing automata theory...' : 'Knowledge engine is retrieving explanation...'}
+                    {hasApiKey ? 'Connecting to Gemini...' : 'Knowledge engine is retrieving explanation...'}
                   </span>
                 </div>
               </div>

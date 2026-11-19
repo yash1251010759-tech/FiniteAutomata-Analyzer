@@ -39,9 +39,22 @@ export function clearStoredApiKey(): void {
 
 const GEMINI_MODELS = [
   'gemini-3.8-flash',
-  'gemini-3.5-flash',
-  'gemini-flash-latest',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
 ];
+
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_REQUEST_TIMEOUT_MS = 20_000;
+
+class GeminiApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'GeminiApiError';
+  }
+}
 
 export async function testGeminiApiKey(apiKey: string): Promise<{ success: boolean; message: string }> {
   const key = apiKey.trim();
@@ -51,20 +64,24 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ success: boole
 
   for (const model of GEMINI_MODELS) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      const url = `${GEMINI_API_URL}/${model}:generateContent`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': key,
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Respond with "OK"' }] }],
         }),
+        signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
       });
 
       if (res.ok) {
         return { success: true, message: `Connected successfully with model ${model}!` };
       }
 
-      if (res.status === 400 || res.status === 403) {
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
         const errorData = await res.json().catch(() => ({}));
         const msg = errorData?.error?.message || 'Invalid API key or insufficient permissions.';
         return { success: false, message: msg };
@@ -333,7 +350,9 @@ Formatting Guidelines:
 
   // Include recent conversation turns for conversational continuity
   const recentHistory = history.slice(-6);
-  for (const item of recentHistory) {
+  const firstUserIndex = recentHistory.findIndex(item => item.sender === 'user');
+  const conversationalHistory = firstUserIndex === -1 ? [] : recentHistory.slice(firstUserIndex);
+  for (const item of conversationalHistory) {
     contents.push({
       role: item.sender === 'user' ? 'user' : 'model',
       parts: [{ text: item.text }],
@@ -359,28 +378,51 @@ Formatting Guidelines:
   let lastError: Error | null = null;
   for (const model of GEMINI_MODELS) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      const url = `${GEMINI_API_URL}/${model}:generateContent`;
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': key,
+        },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const msg = errorData?.error?.message || `Gemini API HTTP ${response.status}`;
-        throw new Error(msg);
+        throw new GeminiApiError(response.status, msg);
       }
 
       const data = await response.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parts = data?.candidates?.[0]?.content?.parts;
+      const rawText = Array.isArray(parts)
+        ? parts
+            .filter(part => typeof part?.text === 'string' && !part.thought)
+            .map(part => part.text)
+            .join('')
+        : '';
       if (!rawText) {
-        throw new Error('Gemini API returned an empty response.');
+        const blockReason = data?.promptFeedback?.blockReason;
+        throw new Error(
+          blockReason
+            ? `Gemini could not answer this question (${blockReason}).`
+            : 'Gemini API returned an empty response.'
+        );
       }
 
       return rawText.trim();
     } catch (err: any) {
       lastError = err;
+      if (
+        !(err instanceof GeminiApiError) ||
+        err.status === 400 ||
+        err.status === 401 ||
+        err.status === 403
+      ) {
+        throw err;
+      }
       continue;
     }
   }

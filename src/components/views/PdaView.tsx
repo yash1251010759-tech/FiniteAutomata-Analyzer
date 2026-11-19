@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { samplePDAs, simulatePDA, PDASimulationResult } from '../../algorithms/pda';
-import { PDADefinition, PDAStep, PDATransition, StateNode } from '../../types/automata';
+import { PDADefinition, PDAStep } from '../../types/automata';
 import {
   Layers,
   Play,
@@ -10,39 +10,12 @@ import {
   SkipForward,
   CheckCircle2,
   XCircle,
-  Plus,
-  Trash2,
-  Sliders,
-  ArrowRight,
+
 } from 'lucide-react';
 
 export const PdaView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'PRESETS' | 'CUSTOM_BUILDER'>('PRESETS');
   const [selectedPda, setSelectedPda] = useState<PDADefinition>(samplePDAs[0]);
-  const [customPda, setCustomPda] = useState<PDADefinition>({
-    id: 'custom-pda',
-    name: 'My Custom Pushdown Automaton',
-    description: 'User-defined Pushdown Automaton with custom states and stack rules.',
-    states: [
-      { id: 'q0', label: 'q0', x: 100, y: 150, isStart: true },
-      { id: 'q1', label: 'q1', x: 260, y: 150 },
-      { id: 'q2', label: 'q2', x: 420, y: 150, isFinal: true },
-    ],
-    inputAlphabet: ['0', '1'],
-    stackAlphabet: ['Z0', '0'],
-    startStateId: 'q0',
-    startStackSymbol: 'Z0',
-    finalStateIds: ['q2'],
-    acceptMode: 'FINAL_STATE',
-    transitions: [
-      { id: 't1', from: 'q0', to: 'q0', inputSymbol: '0', popSymbol: 'ε', pushSymbols: ['0'] },
-      { id: 't2', from: 'q0', to: 'q1', inputSymbol: '1', popSymbol: '0', pushSymbols: ['ε'] },
-      { id: 't3', from: 'q1', to: 'q1', inputSymbol: '1', popSymbol: '0', pushSymbols: ['ε'] },
-      { id: 't4', from: 'q1', to: 'q2', inputSymbol: 'ε', popSymbol: 'Z0', pushSymbols: ['Z0'] },
-    ],
-  });
-
-  const activePda = activeTab === 'PRESETS' ? selectedPda : customPda;
+  const activePda = selectedPda;
 
   const [inputString, setInputString] = useState<string>('0011');
   const [simResult, setSimResult] = useState<PDASimulationResult>(() =>
@@ -50,13 +23,6 @@ export const PdaView: React.FC = () => {
   );
   const [currentStepIdx, setCurrentStepIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-
-  // New transition form state
-  const [newTransFrom, setNewTransFrom] = useState<string>('q0');
-  const [newTransInput, setNewTransInput] = useState<string>('0');
-  const [newTransPop, setNewTransPop] = useState<string>('ε');
-  const [newTransTo, setNewTransTo] = useState<string>('q0');
-  const [newTransPush, setNewTransPush] = useState<string>('0');
 
   const totalSteps = simResult?.steps.length || 0;
   const currentStep: PDAStep | undefined = simResult?.steps[currentStepIdx];
@@ -85,47 +51,6 @@ export const PdaView: React.FC = () => {
     setIsPlaying(false);
   };
 
-  const handleAddTransition = () => {
-    const pushArr = newTransPush
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    const newTrans: PDATransition = {
-      id: `t_${Date.now()}`,
-      from: newTransFrom,
-      to: newTransTo,
-      inputSymbol: newTransInput.trim() || 'ε',
-      popSymbol: newTransPop.trim() || 'ε',
-      pushSymbols: pushArr.length > 0 ? pushArr : ['ε'],
-    };
-
-    const updated = {
-      ...customPda,
-      transitions: [...customPda.transitions, newTrans],
-    };
-    setCustomPda(updated);
-    handleRunSim(inputString, updated);
-  };
-
-  const handleDeleteTransition = (index: number) => {
-    const updated = {
-      ...customPda,
-      transitions: customPda.transitions.filter((_, i) => i !== index),
-    };
-    setCustomPda(updated);
-    handleRunSim(inputString, updated);
-  };
-
-  const handleToggleFinalState = (stateId: string) => {
-    const exists = customPda.finalStateIds.includes(stateId);
-    const updatedFinal = exists
-      ? customPda.finalStateIds.filter(s => s !== stateId)
-      : [...customPda.finalStateIds, stateId];
-    const updated = { ...customPda, finalStateIds: updatedFinal };
-    setCustomPda(updated);
-    handleRunSim(inputString, updated);
-  };
-
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
       {/* Header */}
@@ -136,44 +61,12 @@ export const PdaView: React.FC = () => {
             <span>Pushdown Automata (PDA) Laboratory</span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Design custom PDAs with LIFO stack operations (Push, Pop, No-op) and trace instantaneous descriptions (q, w, γ).
+            Explore curated PDAs with LIFO stack operations (Push, Pop, No-op) and trace instantaneous descriptions (q, w, γ).
           </p>
-        </div>
-
-        {/* Tab switch: Presets vs Custom Builder */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-900 border border-slate-800 rounded-2xl text-xs">
-          <button
-            onClick={() => {
-              setActiveTab('PRESETS');
-              handleRunSim(inputString, selectedPda);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
-              activeTab === 'PRESETS'
-                ? 'bg-emerald-600 text-slate-950 font-bold shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Curated Presets
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('CUSTOM_BUILDER');
-              handleRunSim(inputString, customPda);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
-              activeTab === 'CUSTOM_BUILDER'
-                ? 'bg-indigo-600 text-white font-bold shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Custom PDA Builder
-          </button>
         </div>
       </div>
 
-      {/* Preset Selector or Custom Builder Form */}
-      {activeTab === 'PRESETS' ? (
-        <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3">
+      <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold text-slate-400">Choose Standard PDA:</span>
@@ -212,270 +105,7 @@ export const PdaView: React.FC = () => {
           <p className="text-xs text-slate-300 font-sans leading-relaxed">
             {selectedPda.description}
           </p>
-        </div>
-      ) : (
-        /* CUSTOM PDA BUILDER */
-        <div className="p-6 bg-slate-900/90 border border-indigo-900/50 rounded-3xl shadow-xl space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-sm font-bold text-white font-['Outfit']">
-                Define Your Custom Pushdown Automaton
-              </h3>
-            </div>
-            <span className="text-[11px] text-indigo-300 font-mono">
-              States: {customPda.states.map(s => s.id).join(', ')} | Σ: {customPda.inputAlphabet.join(', ')}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs font-sans">
-            {/* States */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">States (comma-separated):</label>
-              <input
-                type="text"
-                value={customPda.states.map(s => s.id).join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const newStates: StateNode[] = (arr.length > 0 ? arr : ['q0']).map((id, idx) => ({
-                    id,
-                    label: id,
-                    x: 100 + idx * 150,
-                    y: 150,
-                  }));
-                  const updated = { ...customPda, states: newStates };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Input Alphabet */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Input Alphabet Σ:</label>
-              <input
-                type="text"
-                value={customPda.inputAlphabet.join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const updated = { ...customPda, inputAlphabet: arr };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Stack Alphabet */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Stack Alphabet Γ:</label>
-              <input
-                type="text"
-                value={customPda.stackAlphabet.join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const updated = { ...customPda, stackAlphabet: arr };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Acceptance Mode */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Acceptance Criterion:</label>
-              <select
-                value={customPda.acceptMode}
-                onChange={e => {
-                  const updated = {
-                    ...customPda,
-                    acceptMode: e.target.value as PDADefinition['acceptMode'],
-                  };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="FINAL_STATE">Final State (q ∈ F)</option>
-                <option value="EMPTY_STACK">Empty Stack (stack = ∅)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Start State, Start Stack, Final States */}
-          <div className="flex flex-wrap items-center gap-6 pt-1 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Start State q0:</span>
-              <select
-                value={customPda.startStateId}
-                onChange={e => {
-                  const updated = { ...customPda, startStateId: e.target.value };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200"
-              >
-                {customPda.states.map(s => (
-                  <option key={s.id} value={s.id}>{s.id}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Initial Stack Symbol Z0:</span>
-              <input
-                type="text"
-                value={customPda.startStackSymbol}
-                onChange={e => {
-                  const updated = { ...customPda, startStackSymbol: e.target.value.trim() || 'Z0' };
-                  setCustomPda(updated);
-                  handleRunSim(inputString, updated);
-                }}
-                className="w-16 px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200 text-center"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Accepting States (F):</span>
-              <div className="flex items-center gap-1.5">
-                {customPda.states.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => handleToggleFinalState(s.id)}
-                    className={`px-2 py-0.5 rounded-md font-mono text-xs font-bold border transition-colors ${
-                      customPda.finalStateIds.includes(s.id)
-                        ? 'bg-emerald-500/30 text-emerald-300 border-emerald-500/60'
-                        : 'bg-slate-950 text-slate-500 border-slate-800'
-                    }`}
-                  >
-                    {s.id}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Transitions Table & Add Row */}
-          <div className="space-y-3 pt-2">
-            <h4 className="font-bold text-slate-300 text-xs flex items-center justify-between">
-              <span>Transition Rules δ(state, input, stack_top) → (next_state, push):</span>
-              <span className="text-slate-500 font-mono text-[11px] font-normal">
-                {customPda.transitions.length} Rules Defined
-              </span>
-            </h4>
-
-            {/* List of transitions */}
-            <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/60">
-              <table className="w-full text-left font-mono text-xs">
-                <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-800">
-                  <tr>
-                    <th className="py-2 px-3">From State</th>
-                    <th className="py-2 px-3">Read Symbol</th>
-                    <th className="py-2 px-3">Pop Stack</th>
-                    <th className="py-2 px-3">Next State</th>
-                    <th className="py-2 px-3">Push Stack</th>
-                    <th className="py-2 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                  {customPda.transitions.map((t, idx) => (
-                    <tr key={idx} className="hover:bg-slate-900/40">
-                      <td className="py-2 px-3 text-indigo-400 font-bold">{t.from}</td>
-                      <td className="py-2 px-3 text-cyan-300">'{t.inputSymbol}'</td>
-                      <td className="py-2 px-3 text-amber-300">'{t.popSymbol}'</td>
-                      <td className="py-2 px-3 text-emerald-400 font-bold">{t.to}</td>
-                      <td className="py-2 px-3 text-purple-300">[{t.pushSymbols.join(', ')}]</td>
-                      <td className="py-2 px-3 text-right">
-                        <button
-                          onClick={() => handleDeleteTransition(idx)}
-                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
-                          title="Delete Transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Add New Transition Form Row */}
-            <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-wrap items-center gap-2 text-xs font-mono">
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">From:</span>
-                <select
-                  value={newTransFrom}
-                  onChange={e => setNewTransFrom(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
-                >
-                  {customPda.states.map(s => (
-                    <option key={s.id} value={s.id}>{s.id}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Read:</span>
-                <input
-                  type="text"
-                  value={newTransInput}
-                  onChange={e => setNewTransInput(e.target.value)}
-                  placeholder="0 or ε"
-                  className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
-                />
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Pop:</span>
-                <input
-                  type="text"
-                  value={newTransPop}
-                  onChange={e => setNewTransPop(e.target.value)}
-                  placeholder="Z0 or ε"
-                  className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
-                />
-              </div>
-
-              <ArrowRight className="w-3.5 h-3.5 text-slate-600" />
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">To:</span>
-                <select
-                  value={newTransTo}
-                  onChange={e => setNewTransTo(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
-                >
-                  {customPda.states.map(s => (
-                    <option key={s.id} value={s.id}>{s.id}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Push (top first):</span>
-                <input
-                  type="text"
-                  value={newTransPush}
-                  onChange={e => setNewTransPush(e.target.value)}
-                  placeholder="0, Z0 or ε"
-                  className="w-20 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
-                />
-              </div>
-
-              <button
-                onClick={handleAddTransition}
-                className="ml-auto px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold font-sans flex items-center gap-1 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Rule</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* Input Ribbon & Simulator Execution */}
       <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">

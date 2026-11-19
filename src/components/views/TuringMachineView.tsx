@@ -3,9 +3,8 @@ import {
   sampleTuringMachines,
   simulateTuringMachine,
   TMSimulationResult,
-  validateTuringMachine,
 } from '../../algorithms/turingMachine';
-import { TMDefinition, TMStep, TMTransition, StateNode } from '../../types/automata';
+import { TMDefinition, TMStep } from '../../types/automata';
 import {
   Binary,
   Play,
@@ -16,39 +15,11 @@ import {
   CheckCircle2,
   XCircle,
   ArrowUp,
-  Plus,
-  Trash2,
-  Sliders,
-  Sparkles,
-  ArrowRight,
-  AlertTriangle,
-  HelpCircle,
 } from 'lucide-react';
 
 export const TuringMachineView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'PRESETS' | 'CUSTOM_BUILDER'>('PRESETS');
   const [selectedTm, setSelectedTm] = useState<TMDefinition>(sampleTuringMachines[0]);
-  const [customTm, setCustomTm] = useState<TMDefinition>({
-    id: 'custom-tm',
-    name: 'My Custom Turing Machine',
-    description: 'User-designed single-tape Turing machine with custom transition rules.',
-    states: [
-      { id: 'q0', label: 'q0', x: 100, y: 150, isStart: true },
-      { id: 'q1', label: 'q1', x: 260, y: 150 },
-      { id: 'q_accept', label: 'q_accept', x: 420, y: 150, isFinal: true },
-    ],
-    inputAlphabet: ['0', '1'],
-    tapeAlphabet: ['0', '1', 'X', '_'],
-    blankSymbol: '_',
-    startStateId: 'q0',
-    acceptStateId: 'q_accept',
-    transitions: [
-      { id: 't1', from: 'q0', to: 'q1', readSymbol: '0', writeSymbol: 'X', direction: 'R' },
-      { id: 't2', from: 'q1', to: 'q_accept', readSymbol: '_', writeSymbol: '_', direction: 'S' },
-    ],
-  });
-
-  const activeTm = activeTab === 'PRESETS' ? selectedTm : customTm;
+  const activeTm = selectedTm;
 
   const [inputTape, setInputTape] = useState<string>('1011');
   const [maxSteps, setMaxSteps] = useState<number>(10_000);
@@ -59,17 +30,8 @@ export const TuringMachineView: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [speedMs, setSpeedMs] = useState<number>(500);
 
-  // New transition form state
-  const [newTransFrom, setNewTransFrom] = useState<string>('q0');
-  const [newTransRead, setNewTransRead] = useState<string>('0');
-  const [newTransWrite, setNewTransWrite] = useState<string>('0');
-  const [newTransDir, setNewTransDir] = useState<'L' | 'R' | 'S'>('R');
-  const [newTransTo, setNewTransTo] = useState<string>('q0');
-  const [transitionWarning, setTransitionWarning] = useState<string>('');
-
   const totalSteps = simResult?.steps.length || 0;
   const currentStep: TMStep | undefined = simResult?.steps[currentStepIdx];
-  const customValidation = validateTuringMachine(customTm);
 
   // Auto-play loop
   useEffect(() => {
@@ -96,41 +58,6 @@ export const TuringMachineView: React.FC = () => {
     setIsPlaying(false);
   };
 
-  const handleAddTransition = () => {
-    const readSymbol = newTransRead.trim() || customTm.blankSymbol;
-    const duplicate = customTm.transitions.some(
-      transition => transition.from === newTransFrom && transition.readSymbol === readSymbol
-    );
-    if (duplicate) {
-      setTransitionWarning(`Transition (${newTransFrom}, ${readSymbol}) already exists; TMs must be deterministic.`);
-      return;
-    }
-    setTransitionWarning('');
-    const newTrans: TMTransition = {
-      id: `t_${Date.now()}`,
-      from: newTransFrom,
-      to: newTransTo,
-      readSymbol,
-      writeSymbol: newTransWrite.trim() || customTm.blankSymbol,
-      direction: newTransDir,
-    };
-
-    const updated = {
-      ...customTm,
-      transitions: [...customTm.transitions, newTrans],
-    };
-    setCustomTm(updated);
-    handleRunSim(inputTape, updated);
-  };
-
-  const handleDeleteTransition = (id: string) => {
-    const updated = {
-      ...customTm,
-      transitions: customTm.transitions.filter(t => t.id !== id),
-    };
-    setCustomTm(updated);
-    handleRunSim(inputTape, updated);
-  };
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
@@ -145,41 +72,9 @@ export const TuringMachineView: React.FC = () => {
             Universal computation on an infinite two-way tape: read/write head, directional movement (L/R/S), and state transitions.
           </p>
         </div>
-
-        {/* Tab Switch: Presets vs Custom Builder */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-900 border border-slate-800 rounded-2xl text-xs">
-          <button
-            onClick={() => {
-              setActiveTab('PRESETS');
-              handleRunSim(inputTape, selectedTm);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
-              activeTab === 'PRESETS'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Curated Presets
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('CUSTOM_BUILDER');
-              handleRunSim(inputTape, customTm);
-            }}
-            className={`px-3 py-1.5 rounded-xl font-semibold transition-all ${
-              activeTab === 'CUSTOM_BUILDER'
-                ? 'bg-indigo-600 text-white font-bold shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Custom TM Builder
-          </button>
-        </div>
       </div>
 
-      {/* Preset Selector or Custom Builder Form */}
-      {activeTab === 'PRESETS' ? (
-        <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3">
+      <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-xs font-bold text-slate-400">Choose Standard TM:</span>
@@ -218,278 +113,6 @@ export const TuringMachineView: React.FC = () => {
             {selectedTm.description}
           </p>
         </div>
-      ) : (
-        /* CUSTOM TM BUILDER */
-        <div className="p-6 bg-slate-900/90 border border-indigo-900/50 rounded-3xl shadow-xl space-y-5">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-sm font-bold text-white font-['Outfit']">
-                Define Your Custom Turing Machine
-              </h3>
-            </div>
-            <span className="text-[11px] text-indigo-300 font-mono">
-              States: {customTm.states.map(s => s.id).join(', ')} | Blank: '{customTm.blankSymbol}'
-            </span>
-          </div>
-          {customValidation.errors.map((error, index) => (
-            <p key={`tm-error-${index}`} className="text-xs text-rose-300">
-              {error}
-            </p>
-          ))}
-          {transitionWarning && (
-            <p className="text-xs text-amber-300">{transitionWarning}</p>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs font-sans">
-            {/* States */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">States (comma-separated):</label>
-              <input
-                type="text"
-                value={customTm.states.map(s => s.id).join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const newStates: StateNode[] = arr.map((id, idx) => ({
-                    id,
-                    label: id,
-                    x: 100 + idx * 150,
-                    y: 150,
-                    isStart: id === customTm.startStateId,
-                    isFinal: id === customTm.acceptStateId,
-                  }));
-                  const updated = { ...customTm, states: newStates };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Input Alphabet */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Input Alphabet Σ:</label>
-              <input
-                type="text"
-                value={customTm.inputAlphabet.join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const updated = { ...customTm, inputAlphabet: arr };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Tape Alphabet */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Tape Alphabet Γ:</label>
-              <input
-                type="text"
-                value={customTm.tapeAlphabet.join(', ')}
-                onChange={e => {
-                  const arr = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  const updated = { ...customTm, tapeAlphabet: arr };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-
-            {/* Blank Symbol */}
-            <div className="space-y-1">
-              <label className="text-slate-400 font-semibold">Blank Symbol:</label>
-              <input
-                type="text"
-                value={customTm.blankSymbol}
-                onChange={e => {
-                  const updated = { ...customTm, blankSymbol: e.target.value.trim() || '_' };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-indigo-500 text-center"
-              />
-            </div>
-          </div>
-
-          {/* Start State, Accept State, Max Steps */}
-          <div className="flex flex-wrap items-center gap-6 pt-1 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Start State q0:</span>
-              <select
-                value={customTm.startStateId}
-                onChange={e => {
-                  const updated = { ...customTm, startStateId: e.target.value };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-slate-200"
-              >
-                {customTm.states.map(s => (
-                  <option key={s.id} value={s.id}>{s.id}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Accept State (q_acc):</span>
-              <select
-                value={customTm.acceptStateId}
-                onChange={e => {
-                  const updated = { ...customTm, acceptStateId: e.target.value };
-                  setCustomTm(updated);
-                  handleRunSim(inputTape, updated);
-                }}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-emerald-300 font-bold"
-              >
-                {customTm.states.map(s => (
-                  <option key={s.id} value={s.id}>{s.id}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-semibold">Safety Step Limit:</span>
-              <select
-                value={maxSteps}
-                onChange={e => {
-                  const limit = Number(e.target.value);
-                  setMaxSteps(limit);
-                  handleRunSim(inputTape, customTm, limit);
-                }}
-                className="px-2 py-1 bg-slate-950 border border-slate-800 rounded-lg font-mono text-amber-300"
-              >
-                <option value={500}>500 Steps</option>
-                <option value={1000}>1,000 Steps</option>
-                <option value={3000}>3,000 Steps</option>
-                <option value={10000}>10,000 Steps</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Transitions Table & Add Row */}
-          <div className="space-y-3 pt-2">
-            <h4 className="font-bold text-slate-300 text-xs flex items-center justify-between">
-              <span>Transition Rules δ(state, read) → (write, direction, next_state):</span>
-              <span className="text-slate-500 font-mono text-[11px] font-normal">
-                {customTm.transitions.length} Rules Defined
-              </span>
-            </h4>
-
-            {/* List of transitions */}
-            <div className="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/60">
-              <table className="w-full text-left font-mono text-xs">
-                <thead className="bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-800">
-                  <tr>
-                    <th className="py-2 px-3">From State</th>
-                    <th className="py-2 px-3">Read Tape</th>
-                    <th className="py-2 px-3">Write Tape</th>
-                    <th className="py-2 px-3">Move Head</th>
-                    <th className="py-2 px-3">Next State</th>
-                    <th className="py-2 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 text-slate-200">
-                  {customTm.transitions.map((t) => (
-                    <tr key={t.id} className="hover:bg-slate-900/40">
-                      <td className="py-2 px-3 text-indigo-400 font-bold">{t.from}</td>
-                      <td className="py-2 px-3 text-cyan-300 font-bold">'{t.readSymbol}'</td>
-                      <td className="py-2 px-3 text-amber-300 font-bold">'{t.writeSymbol}'</td>
-                      <td className="py-2 px-3 font-bold text-purple-300">{t.direction}</td>
-                      <td className="py-2 px-3 text-emerald-400 font-bold">{t.to}</td>
-                      <td className="py-2 px-3 text-right">
-                        <button
-                          onClick={() => handleDeleteTransition(t.id)}
-                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
-                          title="Delete Transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Add New Transition Form Row */}
-            <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex flex-wrap items-center gap-2 text-xs font-mono">
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">From:</span>
-                <select
-                  value={newTransFrom}
-                  onChange={e => setNewTransFrom(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
-                >
-                  {customTm.states.map(s => (
-                    <option key={s.id} value={s.id}>{s.id}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Read:</span>
-                <input
-                  type="text"
-                  value={newTransRead}
-                  onChange={e => setNewTransRead(e.target.value)}
-                  placeholder="0, 1 or _"
-                  className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
-                />
-              </div>
-
-              <ArrowRight className="w-3.5 h-3.5 text-slate-600" />
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Write:</span>
-                <input
-                  type="text"
-                  value={newTransWrite}
-                  onChange={e => setNewTransWrite(e.target.value)}
-                  placeholder="0, 1 or _"
-                  className="w-14 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 text-center"
-                />
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">Move:</span>
-                <select
-                  value={newTransDir}
-                  onChange={e => setNewTransDir(e.target.value as TMTransition['direction'])}
-                  className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
-                >
-                  <option value="R">R (Right)</option>
-                  <option value="L">L (Left)</option>
-                  <option value="S">S (Stay)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500 text-[10px]">To:</span>
-                <select
-                  value={newTransTo}
-                  onChange={e => setNewTransTo(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200"
-                >
-                  {customTm.states.map(s => (
-                    <option key={s.id} value={s.id}>{s.id}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                onClick={handleAddTransition}
-                className="ml-auto px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold font-sans flex items-center gap-1 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Rule</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Description & Input Ribbon */}
       <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-3xl shadow-xl space-y-4 backdrop-blur-md">
